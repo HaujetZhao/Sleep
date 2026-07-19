@@ -20,10 +20,14 @@
 ```
 Rain/                              # 根目录即 Vite + Vue3 主项目（早期 app/ 子目录已平移上来）
 ├── CLAUDE.md                      # 本文件
-├── README.md                      # 音频素材来源声明
+├── README.md                      # 简介 + 音频/图标素材来源声明
 ├── index.html                     # Vite 入口（<title>Sleep · 助眠环境音</title>）
-├── vite.config.js                 # host:true 暴露局域网（手机测试），端口 5184
-├── package.json                   # name: "sleep"
+├── vite.config.js                 # dev server 配置：host:true 暴露局域网（手机测试），端口 5184
+├── vite.config.pwa.js             # 生产构建配置：vite-plugin-pwa（manifest + service worker + workbox 缓存）
+├── package.json                   # name: "sleep"，scripts: dev / build / build:pwa / icons / preview
+├── .github/workflows/deploy.yml   # CI：push main → build:pwa → 部署 GitHub Pages（/Sleep/ 子路径）
+├── scripts/
+│   └── gen-icons.mjs              # 一次性：用 sharp 把 fa-bed 渲染成 icon-192/512.png（产物已提交，换图标再跑）
 ├── public/
 │   ├── audio/                     # 6 段 Adobe 音源 mp3（192k）
 │   │   ├── 01 - 打雷下雨.mp3
@@ -32,16 +36,23 @@ Rain/                              # 根目录即 Vite + Vue3 主项目（早期
 │   │   ├── 04 - 海边礁石.mp3
 │   │   ├── 05 - 夜晚蟋蟀青蛙.mp3
 │   │   └── 06 - 旷野.mp3
-│   ├── favicon.svg / icons.svg
+│   ├── favicon.svg                # fa-bed 矢量图（Font Awesome Free，CC BY 4.0）
+│   ├── icon-192.png / icon-512.png # PWA 安装图标（iOS「添加到主屏幕」只认位图）
+│   ├── icons.svg
 │   └── audio-test.html            # 早期验证用独立 demo（双 audio 并发 + 自动循环），保留供回溯
 └── src/
-    ├── App.vue                    # 全部 UI + 播放/轮换/暂停/倒计时/选曲逻辑都在这一个 SFC（~680 行）
+    ├── App.vue                    # 全部 UI + 播放/轮换/暂停/倒计时/选曲/缓存态都在这一个 SFC（~708 行）
     ├── audio-sources.js           # 音源清单（key/name/file）+ 可运行自检
     ├── countdown.js               # 倒计时预设 + formatCountdown + 可运行自检
-    └── main.js
+    ├── main.js
+    ├── assets/                    # Vite 脚手架残留（hero.png/vue.svg/vite.svg），未引用，可删
+    └── components/                # 空目录，脚手架残留，可删
 ```
 
-dev server：`npm run dev`，手机用输出的 `Network: http://<局域网IP>:<端口>/` 访问（手机与电脑同 WiFi）。
+> 残留目录 `app/`（早期平移前的旧目录，已空）、`src/assets/`、`src/components/`、`docs/` 均为脚手架遗留，未实际使用，待清理。
+
+dev server：`npm run dev`（用 `vite.config.js`），手机用输出的 `Network: http://<局域网IP>:<端口>/` 访问（手机与电脑同 WiFi）。
+生产构建：`npm run build:pwa`（用 `vite.config.pwa.js`，注入 PWA）。两套配置分开——PWA 需要 service worker 与 manifest 这两个独立外链文件，dev 用不到，比 if/else 污染主配置清晰。部署走 `.github/workflows/deploy.yml`（push main 自动 build:pwa → GitHub Pages）。
 **注意**：用户机器上常有多个残留 node dev 进程占用 5173~5184，Vite 会自动跳端口。清理由用户手动做，不要主动杀进程。
 
 ## 核心架构（已验收确定，勿轻改）
@@ -89,6 +100,18 @@ dev server：`npm run dev`，手机用输出的 `Network: http://<局域网IP>:<
 - HTML5 `<audio>` 激活系统媒体会话 → 通知栏/锁屏有媒体控件（实测移动端可用）。
 - ⚠️ **已知滞后点**：`metadata` 里 `title:'Heavy Rain'` 仍硬编码，未随选中音源更新（artist 已改为 `'Sleep'`）。做"通知栏显示当前音源名"时一并处理。
 
+## PWA / 离线 / 缓存态图标（已验收）
+
+- **可安装、可离线**：`vite-plugin-pwa`（`vite.config.pwa.js`）生成 manifest + service worker。`registerType: 'autoUpdate'`。manifest 用 `theme_color/background_color:#07060f`、`display:standalone`、`orientation:portrait`。
+- **两层缓存策略**（workbox）：
+  - **app shell 预缓存**：`globPatterns` 含 `js/css/html/svg/png/json/woff2/woff`。**woff2 必须进 precache**——否则 Font Awesome 的 `<i class="fa-">` 在离线刷新时 CSS 引用的字体 404，渲染成豆腐块。
+  - **音频运行时缓存**：`.mp3` 走 `CacheFirst`（缓存名 `sleep-audio`，`maxEntries:20`，一年），首次播放后落盘，再次/离线即取本地；不塞进安装预缓存以免首装拖慢。`maximumFileSizeToCacheInBytes: 3MB` 卡住大文件。
+- **缓存态图标三态**（App.vue）：`preparingKey` / `cachedKeys` / `selectedKey` 驱动——准备中（`fa-circle-notch` 旋转）/ 已缓存本地（`fa-circle-check`）/ 云端未下载（`fa-cloud`，点击即下载烤制）。idle 选择页的下拉项与播放页胶囊各显示一套，胶囊反映**当前选中音源**的真实离线态。
+- ⚠️ **缓存态比对的坑（已修复）**：`navigator.onLine` 判断需与服务端缓存名比对，两边 URL 必须都用 `new URL(..., location.href).pathname` 规范化后再比，否则刷新后图标掉回云端（commit `91b9a8b`）。缓存名 `'sleep-audio'` 来自 sw 里 `.mp3` 的 CacheFirst 路由。
+- **Font Awesome 本地内置**：依赖 `@fortawesome/fontawesome-free`，字体随构建打进 precache，离线可用（修复早期离线 FA 字体变豆腐块，commit `8e2f3e9`）。
+- **图标**：`public/favicon.svg`（矢量）+ `icon-192/512.png`（位图，iOS Safari「添加到主屏幕」只认位图）。PNG 由 `scripts/gen-icons.mjs` 用 sharp 从 fa-bed 渲染，产物提交进 repo，换图标改 SVG 再跑一遍。
+- **部署**：`.github/workflows/deploy.yml`，push main → `npm ci` → `build:pwa` → 上传 dist → deploy-pages。`base: './'`（相对）让资源与音源路径随页面 URL 自动解析，GitHub Pages 子路径 `/Sleep/` 下不写死仓库名，换仓库/路径也能用。
+
 ## 关键技术决策（踩过的坑，勿重蹈）
 
 - **走 HTML5 `<audio>` 不走 Web Audio 播放**：移动端实测双 `<audio>` 可并发且**熄屏持续播放**。Web Audio（howler 默认）做交叉淡变虽淡变更精确，但**熄屏会被系统挂起、无通知栏控件**——助眠场景不可接受。已放弃 Web Audio 播放路线。
@@ -105,7 +128,10 @@ dev server：`npm run dev`，手机用输出的 `Network: http://<局域网IP>:<
 - 暂停/继续原地恢复、蓝牙键接管。
 - 多音源选择 + 记忆 + 惰性烤制。
 - 倒计时预设 + 自定义径向圆盘。
+- PWA：可安装到主屏幕、离线可用（app shell + 音频两层缓存）。
+- 缓存态图标三态（准备中/已缓存/云端），下拉项与胶囊各一套。
+- GitHub Pages 自动部署（push main → build:pwa → Pages）。
 
 ## 下一步（用户未提，勿主动做）
 
-PWA（manifest + service worker，可装到主屏幕）、音量控制、UI 打磨。等用户主动提出。
+音量控制、Media Session `title` 动态化（随选中音源更新通知栏曲名）、清理脚手架残留目录（`app/`、`src/assets/`、`src/components/`、`docs/`）、UI 打磨。等用户主动提出。
