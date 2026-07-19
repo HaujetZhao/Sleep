@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>双 audio 并发测试（淡变烤进 WAV）</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; min-height:100vh; padding:24px; box-sizing:border-box;
+    background:#0b0d10; color:#e6e6e6;
+    font:15px/1.5 system-ui,"Microsoft YaHei",sans-serif; }
+  h1 { font-size:16px; font-weight:500; color:#9aa0a6; letter-spacing:1px; }
+  #load-status { color:#6b7280; font-size:13px; margin:8px 0 20px; }
+  .row { display:flex; align-items:center; gap:12px; margin:14px 0;
+    padding:16px; background:#15181d; border-radius:12px; }
+  .label { flex:1; }
+  .label small { color:#6b7280; display:block; font-size:12px; margin-top:2px; }
+  button { width:64px; height:64px; border-radius:50%; border:none; cursor:pointer;
+    background:#1f6feb; color:#fff; font-size:20px; flex-shrink:0; }
+  button.on { background:#c53030; }
+  button:disabled { background:#3a3f47; cursor:not-allowed; }
+  .hint { font-size:13px; color:#6b7280; margin-top:24px; line-height:1.7; }
+  code { background:#22262d; padding:2px 6px; border-radius:4px; font-size:12px; }
+</style>
+</head>
+<body>
+  <h1>双 &lt;audio&gt; 并发测试</h1>
+  <div id="load-status">正在准备音频…</div>
+
+  <div class="row">
+    <div class="label">音频 A（淡变烤进的 15s）<small id="a-state">未播放</small></div>
+    <button id="a-btn" onclick="toggle('a')" disabled>▶</button>
+  </div>
+
+  <div class="row">
+    <div class="label">音频 B（同一 blob）<small id="b-state">未播放</small></div>
+    <button id="b-btn" onclick="toggle('b')" disabled>▶</button>
+  </div>
+
+  <div class="row" style="background:#1a1410;">
+    <div class="label">自动循环<br><small id="loop-state">停止</small></div>
+    <button id="loop-btn" onclick="toggleLoop()" disabled>▶</button>
+  </div>
+
+  <div class="hint">
+    <b>说明：</b> 15s 音频的开头 5s 和结尾 5s 的振幅淡变已<b>烤进 WAV</b>，播放时无需 JS 控音量。<br>
+    <b>手动验收：</b> 点 A 播放 → 约 10s 后点 B（A 淡出 + B 淡入重叠 5s）→ 听交接。<br>
+    <b>自动循环：</b> 点第三个按钮启动 → 每 10s 轮换启动 A/B，无限循环；再点全停；再点从头开始。<br>
+  </div>
+
+<script>
+// ponytail: 把淡变预先烤进音频波形 → 播放时零 JS 控音量、精度无损、熄屏无忧。
+// 流程：fetch mp3 → decodeAudioData → 改 channelData 振幅（前5s淡入、后5s淡出）→ 编码 WAV → blob URL。
+const FADE = 5;          // 淡入淡出时长（秒）
+const SRC  = '/test-15s.mp3';
+
+let blobUrl = null;
+
+// 最小 WAV 编码器：16-bit PCM。Web Audio 没有原生 encode，只能手写（就这点代码）。
+function audioBufferToWav(buffer) {
+  const numCh = buffer.numberOfChannels;
+  const sr = buffer.sampleRate;
+  const len = buffer.length;
+  const bytesPerSample = 2;
+  const blockAlign = numCh * bytesPerSample;
+  const dataSize = len * blockAlign;
+  const ab = new ArrayBuffer(44 + dataSize);
+  const v = new DataView(ab);
+  const ws = (off, str) => { for (let i=0;i<str.length;i++) v.setUint8(off+i, str.charCodeAt(i)); };
+
+  ws(0, 'RIFF'); v.setUint32(4, 36+dataSize, true); ws(8, 'WAVE');
+  ws(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true);
+  v.setUint16(22,numCh,true); v.setUint32(24,sr,true);
+  v.setUint32(28,sr*blockAlign,true); v.setUint16(32,blockAlign,true); v.setUint16(34,16,true);
+  ws(36,'data'); v.setUint32(40,dataSize,true);
+
+  const channels = [];
+  for (let c=0;c<numCh;c++) channels.push(buffer.getChannelData(c));
+  let off = 44;
+  for (let i=0;i<len;i++) {
+    for (let c=0;c<numCh;c++) {
+      let s = Math.max(-1, Math.min(1, channels[c][i]));
+      v.setInt16(off, s < 0 ? s*0x8000 : s*0x7FFF, true);
+      off += 2;
+    }
+  }
+  return ab;
+}
+
+async function prepare() {
+  const statusEl = document.getElementById('load-status');
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new Ctx();
+    const res = await fetch(SRC);
+    const buf = await res.arrayBuffer();
+    const audioBuf = await ctx.decodeAudioData(buf);
+    ctx.close();
+
+    const len = audioBuf.length;
+    const sr  = audioBuf.sampleRate;
+    const fadeSamples = FADE * sr;
+    for (let c=0;c<audioBuf.numberOfChannels;c++) {
+      const data = audioBuf.getChannelData(c);
+      for (let i=0;i<fadeSamples;i++) {
+        const g = i / fadeSamples;                       // 0→1
+        data[i] *= g;                                    // 开头淡入
+        data[len-1-i] *= g;                              // 结尾淡出
+      }
+    }
+
+    const wav = audioBufferToWav(audioBuf);
+    blobUrl = URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }));
+
+    statusEl.textContent = `就绪：${(len/sr).toFixed(1)}s，淡变 ${FADE}s 已烤进 WAV（${(wav.byteLength/1024).toFixed(0)} KB）`;
+    document.getElementById('a-btn').disabled = false;
+    document.getElementById('b-btn').disabled = false;
+    document.getElementById('loop-btn').disabled = false;
+  } catch (e) {
+    statusEl.textContent = '准备失败：' + e.message;
+  }
+}
+
+const audios = {
+  a: new Audio(),
+  b: new Audio(),
+};
+audios.a.loop = false;
+audios.b.loop = false;
+
+function toggle(key) {
+  const el = audios[key];
+  const btn = document.getElementById(key + '-btn');
+  const st  = document.getElementById(key + '-state');
+  if (el.paused) {
+    if (!el.src) el.src = blobUrl;       // 懒挂 blob URL
+    el.currentTime = 0;
+    el.play().then(() => {
+      btn.textContent = '⏸'; btn.classList.add('on');
+      st.textContent = '播放中';
+    }).catch(e => st.textContent = '播放失败：' + e.message);
+  } else {
+    el.pause();
+    btn.textContent = '▶'; btn.classList.remove('on');
+    st.textContent = '已暂停';
+  }
+}
+
+// ---- 自动循环：每 10s 轮换启动 A/B，无限循环；淡变靠烤进 WAV 的振幅，无需 JS 控音量 ----
+let loopRunning = false;
+let loopTimer = null;
+let nextKey = 'a';
+const INTERVAL = 10;   // 每 10s 启动下一段（= 段长 15 - 重叠 5）
+
+function setManualEnabled(enabled) {
+  document.getElementById('a-btn').disabled = !enabled;
+  document.getElementById('b-btn').disabled = !enabled;
+}
+
+function startSegment(key) {
+  const el = audios[key];
+  if (!el.src) el.src = blobUrl;
+  el.currentTime = 0;
+  el.play().catch(e => {
+    document.getElementById('loop-state').textContent = '播放失败：' + e.message;
+    stopLoop();
+  });
+  document.getElementById(key + '-state').textContent = '播放中（自动）';
+}
+
+function tick() {
+  startSegment(nextKey);
+  nextKey = nextKey === 'a' ? 'b' : 'a';   // 轮换
+}
+
+function startLoop() {
+  loopRunning = true;
+  setManualEnabled(false);                  // 自动模式下禁用手动，避免打架
+  const btn = document.getElementById('loop-btn');
+  btn.textContent = '⏹'; btn.classList.add('on');
+  document.getElementById('loop-state').textContent = '运行中';
+  nextKey = 'a';
+  tick();                                   // 立即播第一段
+  loopTimer = setInterval(tick, INTERVAL * 1000);
+}
+
+function stopLoop() {
+  loopRunning = false;
+  if (loopTimer) { clearInterval(loopTimer); loopTimer = null; }
+  ['a','b'].forEach(k => {
+    const el = audios[k];
+    el.pause(); el.currentTime = 0;        // 归零 → 下次启动从头开始
+    document.getElementById(k + '-state').textContent = '未播放';
+    const b = document.getElementById(k + '-btn');
+    b.textContent = '▶'; b.classList.remove('on');
+  });
+  setManualEnabled(true);
+  const btn = document.getElementById('loop-btn');
+  btn.textContent = '▶'; btn.classList.remove('on');
+  document.getElementById('loop-state').textContent = '停止';
+}
+
+function toggleLoop() {
+  loopRunning ? stopLoop() : startLoop();
+}
+
+prepare();
+
+</script>
+</body>
+</html>
