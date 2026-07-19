@@ -172,7 +172,7 @@ function bindAudio(key) {
   if (!audioA) {
     audioA = new Audio(url); audioB = new Audio(url)
     audioA.loop = audioB.loop = false
-  } else if (audioA.src !== audioB.src || audioA.src !== url) {
+  } else if (audioA.src !== url) {
     audioA.src = url; audioB.src = url
   }
   resetBoth()   // 切源后确保干净（idle 态，安全）
