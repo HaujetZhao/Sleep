@@ -45,7 +45,7 @@ export default defineConfig({
       },
     }),
   ],
-  // base 用 /Sleep/（绝对）：GitHub Pages 部署在该子路径下。
-  // 绝对 base 让 import.meta.env.BASE_URL = '/Sleep/'，音源/资源都能正确拼路径。
-  base: '/Sleep/',
+  // base 用 './'（相对）：GitHub Pages 部署在 /Sleep/ 子路径下，相对 base 让
+  // 资源与音源路径随页面 URL 自动解析，不写死仓库名，换仓库名/路径也能用。
+  base: './',
 })
