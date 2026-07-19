@@ -21,6 +21,7 @@ const selectedName = computed(() =>
   AUDIO_SOURCES.find(a => a.key === selectedKey.value)?.name ?? ''
 )
 const blobCache = new Map()                        // key -> blobUrl（已烤制缓存）
+const cachedKeys = ref([])                         // 已烤制落盘的 key（驱动下拉项 云/本地 图标）
 
 // ---- 自定义时长输入面板(径向圆盘选择器) ----
 const customOpen = ref(false)
@@ -164,6 +165,7 @@ async function prepareOne(key) {
   }
   const url = URL.createObjectURL(new Blob([audioBufferToWav(ab)], { type: 'audio/wav' }))
   blobCache.set(key, url)
+  if (!cachedKeys.value.includes(key)) cachedKeys.value.push(key)   // 通知下拉项：此源已落本地
   return url
 }
 
@@ -394,8 +396,10 @@ function showToast(msg) {
                 @click="selectAudio(a.key)"
               >
                 <span class="audio-item-name">{{ a.name }}</span>
-                <span v-if="a.key === selectedKey && preparingKey !== a.key" class="chk">✓</span>
-                <span v-if="preparingKey === a.key" class="loading-txt">准备中…</span>
+                <!-- 缓存态图标:云端=未下载(离线不可用,点一下即下载)/本地=已落盘可离线/旋转=正在烤制 -->
+                <i v-if="preparingKey === a.key" class="fa-solid fa-circle-notch fa-spin cache-ic loading-ic" title="准备中"></i>
+                <i v-else-if="cachedKeys.includes(a.key)" class="fa-solid fa-circle-check cache-ic local-ic" title="已缓存到本地"></i>
+                <i v-else class="fa-solid fa-cloud cache-ic cloud-ic" title="未缓存，点此下载到本地"></i>
               </li>
             </ul>
           </Transition>
@@ -556,8 +560,10 @@ h1 {
 .audio-item:hover { background: rgba(255,255,255,.07); }
 .audio-item.on { background: rgba(167,139,250,.2); color: #fff; }
 .audio-item.loading { opacity: .6; cursor: progress; }
-.audio-item .chk { color: #a78bfa; font-size: 13px; }
-.audio-item .loading-txt { font-size: 12px; color: #9d8fc2; }
+.audio-item .cache-ic { font-size: 14px; }
+.audio-item .local-ic { color: #5ad19a; }                 /* 本地:绿,离线可用 */
+.audio-item .cloud-ic { color: #9d8fc2; opacity: .85; }   /* 云端:需下载 */
+.audio-item .loading-ic { color: #9d8fc2; }
 
 /* 下拉开合过渡 */
 .dropdown-enter-active, .dropdown-leave-active { transition: opacity .18s, transform .18s; }
