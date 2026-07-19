@@ -83,6 +83,12 @@ function onSelectAudio(key) {          // 下拉选中:关下拉 + 切源(同 ke
     </Transition>
 
     <CustomDurationPicker v-model:open="customOpen" @confirm="selectDuration" />
+
+    <footer class="repo">
+      <a href="https://github.com/HaujetZhao/Sleep" target="_blank" rel="noopener">
+        <i class="fa-brands fa-github"></i> HaujetZhao/Sleep
+      </a>
+    </footer>
   </main>
 </template>
 
@@ -204,4 +210,16 @@ h1 {
 }
 .toast-enter-active, .toast-leave-active { transition: opacity .25s; }
 .toast-enter-from, .toast-leave-to { opacity: 0; }
+
+/* 页脚:仓库链接,贴底 */
+.repo {
+  position: absolute; left: 0; right: 0; bottom: calc(14px + env(safe-area-inset-bottom));
+  text-align: center; pointer-events: none;
+}
+.repo a {
+  color: #9d8fc2; font-size: 12px; letter-spacing: 1px; text-decoration: none;
+  opacity: .6; pointer-events: auto; transition: opacity .18s;
+}
+.repo a:hover { opacity: 1; }
+.repo .fa-github { font-size: 13px; }
 </style>
