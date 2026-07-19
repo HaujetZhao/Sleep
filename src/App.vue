@@ -436,7 +436,7 @@ function showToast(msg) {
       <!-- 播放页:playing / paused -->
       <section v-else key="play" class="page play">
         <div class="countdown">{{ countdownText }}</div>
-        <div class="status">{{ playing ? '播放中' : '已暂停' }}</div>
+        <div class="status">{{ (playing ? '播放中' : '已暂停') + '：' + selectedName }}</div>
         <div class="controls">
           <button class="btn ghost" @click="goBack" aria-label="返回选择页">
             <i class="fa-solid fa-arrow-left"></i>
