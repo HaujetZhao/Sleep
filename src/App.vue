@@ -348,7 +348,7 @@ function syncPlaybackState() {
 function setupMediaSession() {
   if (!('mediaSession' in navigator)) return
   navigator.mediaSession.metadata = new MediaMetadata({
-    title: 'Heavy Rain', artist: 'Rain Loop', album: '助眠'
+    title: 'Heavy Rain', artist: 'Sleep', album: '助眠'
   })
   const onPlay  = () => {
     if (state.value === STATE.PAUSED) resume(); else if (state.value === STATE.IDLE) start()
@@ -376,7 +376,7 @@ function showToast(msg) {
 
 <template>
   <main>
-    <h1>RAIN LOOP</h1>
+    <h1>SLEEP</h1>
     <Transition name="fade" mode="out-in">
       <!-- 选择页:idle -->
       <section v-if="state === 'idle'" key="select" class="page select-page">

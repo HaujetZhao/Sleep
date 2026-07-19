@@ -1,4 +1,27 @@
+# Sleep · 助眠环境音
 
+助眠/放松用的网页 APP：选一段环境音（雨声、海边、夜虫、旷野等），点开后单段音频**无缝循环**——相邻两段有 5 秒重叠的交叉淡入淡出，听不出接缝。支持倒计时停止、暂停/继续（原地恢复）、蓝牙耳机媒体键接管，移动端熄屏持续播放。
+
+> 想睡觉时脑子里冒出的第一个词就是 sleep——名字即回忆，打开即用。早期代号 "Rain Loop" 是最初只有雨声时的遗留，现已多音源，故弃用。
+
+## 技术栈
+
+Vite + Vue 3（单 SFC `src/App.vue`）。核心思路：把交叉淡变**烤进 WAV 波形**（等功率 sqrt 曲线），播放时零 JS 控音量；双 `<audio>` 实例 + `timeupdate` 触发轮换，避开 Web Audio 在移动端熄屏被挂起的问题。
+
+## 开发
+
+```bash
+npm install
+npm run dev      # 手机测试：用输出的 Network 地址（同 WiFi），端口默认 5184，被占会自动跳
+npm run build
+```
+
+## 项目结构
+
+- [src/App.vue](src/App.vue) — 全部 UI 与播放/轮换/暂停/倒计时/选曲逻辑
+- [src/audio-sources.js](src/audio-sources.js) — 音源清单（加音源：往 `public/audio/` 丢 mp3 + 加一行）
+- [src/countdown.js](src/countdown.js) — 倒计时预设与格式化
+- 架构与设计决策详见 [CLAUDE.md](CLAUDE.md)
 
 ## 音频素材来源
 
