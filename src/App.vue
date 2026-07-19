@@ -157,7 +157,7 @@ async function prepareOne(key) {
   for (let c = 0; c < ab.numberOfChannels; c++) {
     const d = ab.getChannelData(c)
     for (let i = 0; i < fadeSamples; i++) {
-      const g = i / fadeSamples
+      const g = Math.sqrt(i / fadeSamples)  // 等功率淡变:重叠段功率总和近似恒定,听感无洼
       d[i] *= g            // 开头淡入
       d[len - 1 - i] *= g  // 结尾淡出
     }
