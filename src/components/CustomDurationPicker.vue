@@ -122,13 +122,6 @@ function confirm() {
           >
             <!-- 外圈细环 -->
             <circle :cx="DISK_C" :cy="DISK_C" :r="DISK_R + 16" fill="none" stroke="rgba(255,255,255,.1)" stroke-width="1"/>
-            <!-- 12 个数字 -->
-            <text
-              v-for="n in diskNumbers" :key="stage + '-' + n.v"
-              :x="n.pos.x" :y="n.pos.y"
-              :class="['disk-num', { sel: n.v === diskSelected }]"
-              text-anchor="middle" dominant-baseline="central"
-            >{{ n.label }}</text>
             <!-- 指针:从圆心指向"正上方"盘边,再用 transform rotate 到当前角度 -->
             <line
               :x1="DISK_C" :y1="DISK_C"
@@ -136,13 +129,20 @@ function confirm() {
               class="pointer"
               :style="{ transform: `rotate(${pointerAngle}deg)`, transformOrigin: `${DISK_C}px ${DISK_C}px` }"
             />
-            <!-- 指针末端圆点(随指针旋转) -->
+            <!-- 指针末端圆盘(随指针旋转,放大;放数字前渲染,数字叠在其上,呈"大圆盘托数字") -->
             <g
               class="pointer-tip"
               :style="{ transform: `rotate(${pointerAngle}deg)`, transformOrigin: `${DISK_C}px ${DISK_C}px` }"
             >
-              <circle :cx="DISK_C" :cy="DISK_C - DISK_R" r="7" class="tip-dot"/>
+              <circle :cx="DISK_C" :cy="DISK_C - DISK_R" r="14" class="tip-disk"/>
             </g>
+            <!-- 12 个数字 -->
+            <text
+              v-for="n in diskNumbers" :key="stage + '-' + n.v"
+              :x="n.pos.x" :y="n.pos.y"
+              :class="['disk-num', { sel: n.v === diskSelected }]"
+              text-anchor="middle" dominant-baseline="central"
+            >{{ n.label }}</text>
             <!-- 圆心小圆点 -->
             <circle :cx="DISK_C" :cy="DISK_C" r="6" class="center-dot"/>
           </svg>
@@ -212,7 +212,7 @@ function confirm() {
   transition: transform .12s ease-out;
 }
 .pointer-tip { transition: transform .12s ease-out; }
-.tip-dot { fill: #a78bfa; }
+.tip-disk { fill: #a78bfa; }
 .center-dot { fill: #a78bfa; }
 
 .custom-go {
