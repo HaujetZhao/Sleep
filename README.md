@@ -35,3 +35,7 @@ npm run build
 | 04 - 海边礁石.mp3 | `Ambience_2\Ambience Ocean Shore 01.wav` |
 | 05 - 夜晚蟋蟀青蛙.mp3 | `Ambience_2\Ambience Night Crickets And A Bullfrog 01.wav` |
 | 06 - 旷野.mp3 | `Ambience_2\Ambience Wilderness 01.wav` |
+
+## 图标来源
+
+[public/favicon.svg](public/favicon.svg) 使用 **[Font Awesome Free](https://fontawesome.com)** 的 `fa-bed` 图标，许可证 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)。
