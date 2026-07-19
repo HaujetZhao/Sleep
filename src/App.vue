@@ -541,7 +541,9 @@ h1 {
   border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.5);
   backdrop-filter: blur(10px);
   max-height: 240px; overflow-y: auto;     /* 固定高度,文件多则框内滚 */
+  scrollbar-width: none;                   /* Firefox 隐藏滚动条 */
 }
+.audio-dropdown::-webkit-scrollbar { display: none; }  /* WebKit/Chromium 隐藏滚动条 */
 .audio-item {
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 14px; border-radius: 9px; cursor: pointer;

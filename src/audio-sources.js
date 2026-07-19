@@ -3,8 +3,12 @@
 // name = 下拉显示文字（= 文件名去后缀；想更友好可改成中文，如 '雨声'）
 // file = /audio/<文件名> 的公开 URL
 export const AUDIO_SOURCES = [
-  { key: 'test-15s.mp3', name: 'test-15s', file: '/audio/test-15s.mp3' },
-  { key: 'full-rain.mp3', name: 'full-rain', file: '/audio/full-rain.mp3' },
+  { key: '01 - 打雷下雨.mp3',           name: '打雷下雨',     file: '/audio/01 - 打雷下雨.mp3' },
+  { key: '02 - 倾盆大雨.mp3',           name: '倾盆大雨',     file: '/audio/02 - 倾盆大雨.mp3' },
+  { key: '03 - 淅沥下雨.mp3',           name: '淅沥下雨',     file: '/audio/03 - 淅沥下雨.mp3' },
+  { key: '04 - 海边礁石.mp3',           name: '海边礁石',     file: '/audio/04 - 海边礁石.mp3' },
+  { key: '05 - 夜晚蟋蟀青蛙.mp3',       name: '夜晚蟋蟀青蛙', file: '/audio/05 - 夜晚蟋蟀青蛙.mp3' },
+  { key: '06 - 旷野.mp3',              name: '旷野',         file: '/audio/06 - 旷野.mp3' },
 ]
 
 // ponytail: 一个可运行自检 —— node src/audio-sources.js 直接跑，仿 countdown.js。

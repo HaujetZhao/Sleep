@@ -15,6 +15,9 @@ dist-ssr
 # 视觉助理会话产物
 .superpowers/
 
+# Playwright MCP 产物
+.playwright-mcp/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
