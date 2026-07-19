@@ -256,24 +256,64 @@ function showToast(msg) {
 <style scoped>
 :root { color-scheme: dark; }
 main {
-  min-height: 100vh; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 24px;
-  background: #0b0d10; color: #e6e6e6;
+  min-height: 100vh; min-height: 100dvh;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 28px;
+  padding: 24px; padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  background: radial-gradient(120% 80% at 50% 0%, #2a1a4a 0%, #0e0a1f 60%, #07060f 100%);
+  color: #f0eaff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
-h1 { font-size: 18px; font-weight: 500; color: #9aa0a6; letter-spacing: 1px; margin: 0; }
-.play {
-  width: 96px; height: 96px; border-radius: 50%; border: none; cursor: pointer;
-  background: #1f6feb; color: #fff; font-size: 28px;
-  transition: transform .15s, background .15s;
+h1 {
+  font-size: clamp(13px, 3.5vw, 16px); font-weight: 500;
+  color: #cfc3f0; letter-spacing: 3px; margin: 0; opacity: .7;
 }
-.play:hover:not(:disabled) { transform: scale(1.05); }
-.play.playing { background: #c53030; }
-.play:disabled { background: #3a3f47; cursor: not-allowed; }
-.status { font-size: 13px; color: #6b7280; margin: 0; }
+
+/* 两态共用 */
+.page { display: flex; flex-direction: column; align-items: center; gap: 18px; width: 100%; max-width: 320px; }
+
+/* 选择页 */
+.select { gap: 12px; }
+.preset {
+  width: 100%; padding: 16px 0; border: none; cursor: pointer;
+  background: rgba(255,255,255,.08); color: #f0eaff;
+  font-size: clamp(15px, 4vw, 17px); letter-spacing: 1px;
+  border-radius: 999px;
+  transition: background .18s, transform .12s;
+  backdrop-filter: blur(8px);
+}
+.preset:hover:not(:disabled)  { background: rgba(255,255,255,.16); }
+.preset:active:not(:disabled) { transform: scale(.98); }
+.preset:disabled { opacity: .4; cursor: not-allowed; }
+
+/* 播放页 */
+.countdown {
+  font-size: clamp(56px, 22vw, 96px); font-weight: 200;
+  line-height: 1; letter-spacing: 2px; color: #f0eaff;
+  text-shadow: 0 0 40px rgba(167,139,250,.35);
+}
+.status { font-size: 13px; color: #9d8fc2; letter-spacing: 1px; margin: -4px 0 6px; }
+.controls { display: flex; gap: 18px; }
+.btn {
+  width: 64px; height: 64px; border-radius: 50%; border: none; cursor: pointer;
+  font-size: 22px; color: #fff;
+  transition: transform .12s, background .18s, opacity .18s;
+}
+.btn:active { transform: scale(.94); }
+.btn.main  { background: linear-gradient(135deg, #a78bfa, #7c5cff); box-shadow: 0 6px 24px rgba(124,92,255,.4); }
+.btn.ghost { background: rgba(255,255,255,.08); color: #cfc3f0; }
+.btn.ghost:hover { background: rgba(255,255,255,.16); }
+
+/* 两态淡入淡出 */
+.fade-enter-active, .fade-leave-active { transition: opacity .28s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* Toast */
 .toast {
-  position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%);
-  background: rgba(0,0,0,.75); color: #fff; padding: 10px 18px;
-  border-radius: 8px; font-size: 14px; pointer-events: none;
+  position: fixed; bottom: calc(32px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,.6); color: #fff; padding: 10px 18px;
+  border-radius: 10px; font-size: 14px; pointer-events: none;
+  backdrop-filter: blur(6px);
 }
 .toast-enter-active, .toast-leave-active { transition: opacity .25s; }
 .toast-enter-from, .toast-leave-to { opacity: 0; }
