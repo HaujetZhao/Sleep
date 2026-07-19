@@ -398,7 +398,10 @@ function showToast(msg) {
         <div class="audio-picker">
           <button class="audio-chip" @click="audioOpen = !audioOpen">
             <span class="audio-name">{{ selectedName }}</span>
-            <span class="caret">▾</span>
+            <!-- 缓存态图标:与下拉项同款,反映当前选中音源的真实离线态 -->
+            <i v-if="preparingKey === selectedKey" class="fa-solid fa-circle-notch fa-spin cache-ic loading-ic" title="准备中"></i>
+            <i v-else-if="cachedKeys.includes(selectedKey)" class="fa-solid fa-circle-check cache-ic local-ic" title="已缓存到本地"></i>
+            <i v-else class="fa-solid fa-cloud cache-ic cloud-ic" title="未缓存，点此下载到本地"></i>
           </button>
           <div v-if="audioOpen" class="dropdown-backdrop" @click="audioOpen = false"></div>
           <Transition name="dropdown">
@@ -549,7 +552,6 @@ h1 {
   transition: background .18s, border-color .18s;
 }
 .audio-chip:hover { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.2); }
-.audio-chip .caret { opacity: .6; font-size: 12px; }
 
 .dropdown-backdrop {
   position: fixed; inset: 0; z-index: 9;   /* 透明背板,点外关闭 */
@@ -573,10 +575,10 @@ h1 {
 .audio-item:hover { background: rgba(255,255,255,.07); }
 .audio-item.on { background: rgba(167,139,250,.2); color: #fff; }
 .audio-item.loading { opacity: .6; cursor: progress; }
-.audio-item .cache-ic { font-size: 14px; }
-.audio-item .local-ic { color: #5ad19a; }                 /* 本地:绿,离线可用 */
-.audio-item .cloud-ic { color: #9d8fc2; opacity: .85; }   /* 云端:需下载 */
-.audio-item .loading-ic { color: #9d8fc2; }
+.cache-ic { font-size: 14px; }
+.local-ic { color: #5ad19a; }                 /* 本地:绿,离线可用 */
+.cloud-ic { color: #9d8fc2; opacity: .85; }   /* 云端:需下载 */
+.loading-ic { color: #9d8fc2; }
 
 /* 下拉开合过渡 */
 .dropdown-enter-active, .dropdown-leave-active { transition: opacity .18s, transform .18s; }
