@@ -3,8 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>app</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Rain Loop</title>
+    <style>
+      /* 全局重置:去掉 body 默认 8px 白边;背景与渐变底部同色防白闪;关掉移动端点击高亮 */
+      * { -webkit-tap-highlight-color: transparent; }
+      html, body { margin: 0; padding: 0; min-height: 100%; background: #07060f; }
+    </style>
   </head>
   <body>
     <div id="app"></div>
