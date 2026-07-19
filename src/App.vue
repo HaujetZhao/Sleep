@@ -229,15 +229,24 @@ function showToast(msg) {
 <template>
   <main>
     <h1>RAIN LOOP</h1>
-    <button class="play" :class="{ playing }" :disabled="!ready" @click="toggle">
-      {{ playing ? '⏸' : '▶' }}
-    </button>
-    <p class="status">{{
-      !ready ? '准备音频…'
-      : playing ? '播放中'
-      : state === 'paused' ? '已暂停'
-      : '点击开始'
-    }}</p>
+    <Transition name="fade" mode="out-in">
+      <!-- 选择页:idle -->
+      <section v-if="state === 'idle'" key="select" class="page select">
+        <button
+          v-for="p in PRESETS" :key="p.key" class="preset"
+          :disabled="!ready" @click="selectDuration(p.ms)"
+        >{{ p.label }}</button>
+      </section>
+      <!-- 播放页:playing / paused -->
+      <section v-else key="play" class="page play">
+        <div class="countdown">{{ countdownText }}</div>
+        <div class="status">{{ playing ? '播放中' : '已暂停' }}</div>
+        <div class="controls">
+          <button class="btn ghost" @click="goBack" aria-label="返回选择页">↩</button>
+          <button class="btn main"  @click="toggle" aria-label="暂停或继续">{{ playing ? '⏸' : '▶' }}</button>
+        </div>
+      </section>
+    </Transition>
     <Transition name="toast">
       <div v-if="toast" class="toast">{{ toast }}</div>
     </Transition>
