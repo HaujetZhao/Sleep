@@ -1,424 +1,31 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { PRESETS, formatCountdown } from './countdown.js'
+import { ref } from 'vue'
+import { PRESETS } from './countdown.js'
 import { AUDIO_SOURCES } from './audio-sources.js'
+import { usePlayer } from './usePlayer.js'
+import CustomDurationPicker from './components/CustomDurationPicker.vue'
 
-// ponytail: 最终方案 —— 淡变烤进 WAV + 双 <audio> 实例定时轮换。
-// 播放时零 JS 控音量（精度无损、熄屏无忧），timeupdate 触发下一段（duration 自适应）。
-// 暂停 = 原地保留最新段进度；继续 = 原地接播（非从头）。
+// App.vue 只做 UI 编排：选择页/播放页的展示与切换、下拉/面板开关。
+// 播放引擎（双 audio 轮换、烤 WAV、倒计时、Media Session、缓存态）全在 usePlayer composable。
+// 自定义时长圆盘选择器是独立组件 CustomDurationPicker。
 
-const LS_KEY = 'rain:selected'   // localStorage 记忆上次选中的音源 key
-const FADE = 5                  // 淡入淡出时长（秒，烤进 WAV）= 交接重叠时长
+const audioOpen = ref(false)          // 音源下拉框开合
+const customOpen = ref(false)         // 自定义时长面板开合
 
-// ponytail: AudioContext 只借它做 decodeAudioData，不占音频图节点——模块级共享一个，永不 close。
-// 早期每次 prepareOne 都 new+close，切 6 个音源就付 6 次硬件握手成本（移动端 Safari 尤敏感）。
-let _audioCtx = null
-const getAudioCtx = () => _audioCtx || (_audioCtx = new (window.AudioContext || window.webkitAudioContext)())
+const {
+  ready, state, playing, countdownText, toast,
+  selectedKey, selectedName, preparingKey, cachedKeys,
+  cacheState, CACHE_ICON,
+  toggle, selectDuration, selectAudio, stop,
+} = usePlayer()
 
-const ready = ref(false)
-const toast = ref('')
-
-// ---- 多音源选择 ----
-const audioOpen = ref(false)                       // 下拉框开合
-const preparingKey = ref(null)                     // 正在惰性烤制的 key（下拉项 loading 态）
-const selectedKey = ref(AUDIO_SOURCES[0].key)      // 当前选中；挂载时按 localStorage 覆盖
-const selectedName = computed(() =>
-  AUDIO_SOURCES.find(a => a.key === selectedKey.value)?.name ?? ''
-)
-const blobCache = new Map()                        // key -> blobUrl（已烤制缓存）
-const cachedKeys = ref([])                         // 已烤制落盘的 key（驱动下拉项 云/本地 图标）
-
-// 缓存态三态：'loading'(烤制中) | 'local'(已落盘) | 'cloud'(未下载)。下拉项与胶囊共用此判定 +
-// CACHE_ICON 表，避免两处各写一份 v-if/v-else-if/v-else 导致文案/图标分叉。
-function cacheState(key) {
-  if (preparingKey.value === key) return 'loading'
-  if (cachedKeys.value.includes(key)) return 'local'
-  return 'cloud'
-}
-const CACHE_ICON = {
-  loading: { class: 'fa-solid fa-circle-notch fa-spin cache-ic loading-ic', title: '准备中' },
-  local:   { class: 'fa-solid fa-circle-check cache-ic local-ic',           title: '已缓存到本地' },
-  cloud:   { class: 'fa-solid fa-cloud cache-ic cloud-ic',                  title: '未缓存，点此下载到本地' },
-}
-
-// ---- 自定义时长输入面板(径向圆盘选择器) ----
-const customOpen = ref(false)
-const customH = ref(0)
-const customM = ref(30)
-const totalMinutes = computed(() => customH.value * 60 + customM.value)
-const customValid = computed(() => totalMinutes.value > 0)
-const stage = ref('h')                    // 'h' = 选小时, 'm' = 选分钟
-
-// 圆盘:0° 在顶(正上方),顺时针,每 30° 一个数字。两盘视觉同款,12 个数字均匀分布。
-const DISK_R = 100                         // SVG 内部坐标系半径(viewBox 0 0 240 240,圆心 120,120)
-const DISK_C = 120
-const HOUR_NUMS  = Array.from({ length: 12 }, (_, i) => i)             // 0..11
-const MIN_NUMS   = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]      // 5 分锚点
-
-// 数字 i 在圆盘上的位置(角度 = i*30°,0° 在顶,顺时针;屏幕坐标 y 向下,故用 -90° 偏移)
-function diskPos(value) {
-  // value: 小时态直接 i(0..11); 分钟态把"步进角"统一为该数字对应的 30° 槽位(m/5 * 30°)
-  const angle = (value * 30 - 90) * Math.PI / 180   // -90 把 0° 转到正上方
-  return {
-    x: DISK_C + DISK_R * Math.cos(angle),
-    y: DISK_C + DISK_R * Math.sin(angle),
-  }
-}
-
-// 指针角度(度,0° 在顶,顺时针):小时 h*30°,分钟 m*6°
-const pointerAngle = computed(() =>
-  stage.value === 'h' ? customH.value * 30 : customM.value * 6
-)
-
-// 当前 stage 盘面要渲染的数字列表(带其角度槽位)
-const diskNumbers = computed(() =>
-  stage.value === 'h'
-    ? HOUR_NUMS.map(v => ({ v, pos: diskPos(v),       label: String(v) }))
-    : MIN_NUMS .map(v => ({ v, pos: diskPos(v / 5),   label: String(v) }))  // 5 分锚点占每 30° 槽
-)
-
-// 当前 stage 当前选中值(用于高亮数字)
-const diskSelected = computed(() => stage.value === 'h' ? customH.value : customM.value)
-
-// 顶部大数字 H : M
-const bigH = computed(() => String(customH.value).padStart(2, '0'))
-const bigM = computed(() => String(customM.value).padStart(2, '0'))
-
-// ---- Pointer Events:按下→拖动→释放,统一走 atan2 角度→值映射(tap 与 drag 同映射) ----
-let dragging = false
-const svgRef = ref(null)
-
-function pointAngle(e) {
-  const svg = svgRef.value
-  if (!svg) return 0
-  const rect = svg.getBoundingClientRect()
-  // 用 viewBox 坐标系:把屏幕像素映射回 0..240
-  const scale = rect.width / 240
-  const x = (e.clientX - rect.left) / scale - DISK_C
-  const y = (e.clientY - rect.top)  / scale - DISK_C
-  // atan2 返回 -π..π,0° 在 +x 轴(右),顺时针为正(屏幕 y 向下)
-  let deg = Math.atan2(y, x) * 180 / Math.PI
-  deg += 90                                 // 把 0° 从右转到顶
-  deg = (deg + 360) % 360                   // 归一到 0..360
-  return deg
-}
-
-function angleToValue(deg) {
-  if (stage.value === 'h') return Math.round(deg / 30) % 12               // 0..11
-  return Math.round(deg / 6) % 60                                          // 0..59
-}
-
-function applyValue(v) {
-  if (stage.value === 'h') {
-    if (customH.value !== v) customH.value = v
-  } else {
-    if (customM.value !== v) customM.value = v
-  }
-}
-
-function onPointerDown(e) {
-  dragging = true
-  e.target.setPointerCapture?.(e.pointerId)
-  applyValue(angleToValue(pointAngle(e)))
-}
-function onPointerMove(e) {
-  if (!dragging) return
-  applyValue(angleToValue(pointAngle(e)))
-}
-function onPointerUp() {
-  if (!dragging) return
-  dragging = false
-  // 释放后:若在小时态,自动切到分钟态(spec 两段式流程)
-  if (stage.value === 'h') stage.value = 'm'
-}
-
-function openCustom() {                    // 进面板:重置 stage 为小时态
-  audioOpen.value = false
-  stage.value = 'h'
-  customOpen.value = true
-}
-function switchStage(s) { stage.value = s }
-
-// ---- 计时(墙钟驱动,与音频 timeupdate 交接完全独立)----
-const duration  = ref(null)   // ms;null = 无限
-const endTime   = ref(null)   // 运行中的结束时间戳(playing 态)
-const remaining = ref(null)   // 暂停冻结的剩余 ms
-const displayMs = ref(0)      // 当前显示用剩余 ms(playing 态由 tick 刷新)
-let countdownTimer = null
-
-let audioA = null, audioB = null
-let nextKey = 'a'
-let toastTimer = null
-
-// ponytail: 刷新后从 SW 的 Cache Storage 真实状态回填 cachedKeys，图标反映真实离线态而非内存态。
-// 缓存名 'sleep-audio' 来自 sw.js 里 .mp3 的 CacheFirst 路由（vite-plugin-pwa 生成）。
-// 注意比较须用绝对 pathname：a.file 在 PWA 构建下是相对 './audio/...'（base:'./'），而 cache 里的
-// Request 是绝对 URL（pathname 为 '/audio/...'，或部署子路径 '/Sleep/audio/...'）。直接字符串比
-// 永不相等 → 刷新后图标掉回云端。两边都用 new URL(..., location.href).pathname 规范化后再比。
-// 把任意 URL 字符串规范化为可比较的 pathname。两边（cache 里的 Request.url 与 a.file）都过这一层，
-// 保证比对严格对称——任一边少一步就刷新后图标掉回云端（commit 91b9a8b 踩过的坑）。
-const normalizePath = urlStr => {
-  try { return decodeURIComponent(new URL(urlStr, location.href).pathname) } catch { return '' }
-}
-async function syncCachedFromSW() {
-  if (!('caches' in window)) return
-  let cache
-  try { cache = await caches.open('sleep-audio') } catch { return }
-  const cached = new Set((await cache.keys()).map(r => normalizePath(r.url)))
-  cachedKeys.value = AUDIO_SOURCES.filter(a => cached.has(normalizePath(a.file))).map(a => a.key)
-}
-
-onMounted(async () => {
-  syncCachedFromSW()   // 不 await：与下方 prepare 并行，回填后图标响应式更新
-  const saved = localStorage.getItem(LS_KEY)
-  const initial = AUDIO_SOURCES.some(a => a.key === saved) ? saved : AUDIO_SOURCES[0].key
-  selectedKey.value = initial
-  await changeAudio(initial)
-  ready.value = true
-  setupMediaSession()
-})
-onUnmounted(stop)
-
-// ---- 音频预处理：解码 → 前5s淡入/后5s淡出烤进振幅 → 编码 WAV → blob（按 key 缓存）----
-async function prepareOne(key) {
-  if (blobCache.has(key)) return blobCache.get(key)
-  const src = AUDIO_SOURCES.find(a => a.key === key).file
-  const buf = await (await fetch(src)).arrayBuffer()
-  const ab = await getAudioCtx().decodeAudioData(buf)
-
-  const len = ab.length, sr = ab.sampleRate, fadeSamples = FADE * sr
-  for (let c = 0; c < ab.numberOfChannels; c++) {
-    const d = ab.getChannelData(c)
-    for (let i = 0; i < fadeSamples; i++) {
-      const g = Math.sqrt(i / fadeSamples)  // 等功率淡变:重叠段功率总和近似恒定,听感无洼
-      d[i] *= g            // 开头淡入
-      d[len - 1 - i] *= g  // 结尾淡出
-    }
-  }
-  const url = URL.createObjectURL(new Blob([audioBufferToWav(ab)], { type: 'audio/wav' }))
-  blobCache.set(key, url)
-  if (!cachedKeys.value.includes(key)) cachedKeys.value.push(key)   // 通知下拉项：此源已落本地
-  return url
-}
-
-// 把双 <audio> 实例绑定到指定 key 的 blob；播放/轮换/暂停核心只认 audioA/B，与此处来源解耦。
-function bindAudio(key) {
-  const url = blobCache.get(key)
-  if (!audioA) {
-    audioA = new Audio(url); audioB = new Audio(url)
-    audioA.loop = audioB.loop = false
-  } else if (audioA.src !== url) {
-    audioA.src = url; audioB.src = url
-  }
-  resetBoth()   // 切源后确保干净（idle 态，安全）
-}
-
-// 最小 WAV 编码器（16-bit PCM）。Web Audio 无原生 encode，手写这几十行。
-function audioBufferToWav(buffer) {
-  const numCh = buffer.numberOfChannels, sr = buffer.sampleRate, len = buffer.length
-  const blockAlign = numCh * 2, dataSize = len * blockAlign
-  const v = new DataView(new ArrayBuffer(44 + dataSize))
-  const ws = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)) }
-  ws(0,'RIFF'); v.setUint32(4,36+dataSize,true); ws(8,'WAVE'); ws(12,'fmt ')
-  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,numCh,true)
-  v.setUint32(24,sr,true); v.setUint32(28,sr*blockAlign,true)
-  v.setUint16(32,blockAlign,true); v.setUint16(34,16,true); ws(36,'data'); v.setUint32(40,dataSize,true)
-  const chs = []; for (let c = 0; c < numCh; c++) chs.push(buffer.getChannelData(c))
-  let off = 44
-  for (let i = 0; i < len; i++) for (let c = 0; c < numCh; c++) {
-    let s = Math.max(-1, Math.min(1, chs[c][i]))
-    v.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true); off += 2
-  }
-  return v.buffer
-}
-
-// ---- 播放控制 ----
-// ponytail: 不用 setInterval（熄屏漂移、误差累积）。改用 audio 自身的 timeupdate：
-// 当前段播到 (duration - FADE) 秒时启动下一段。duration 自适应，换任何长度音频都成立。
-//
-// 暂停/继续（原地恢复，非从头）：
-//   - 暂停时，所有在播段 pause；但只保留"最新一段"的进度（= 非 nextKey 且在播的那段），
-//     更早的段（已过交接点、正在淡出）直接归零停掉——它的历史使命已结束。
-//   - 单段播放时，那一段就是最新的，原地暂停。
-//   - 继续：只有保留的那一段 play()，它的 ontimeupdate 还在，播到交接点正常往下走。
-const STATE = { IDLE: 'idle', PLAYING: 'playing', PAUSED: 'paused' }
-const state = ref(STATE.IDLE)
-const playing = computed(() => state.value === STATE.PLAYING)
-
-const countdownText = computed(() => {
-  if (!duration.value) return '∞'
-  const ms = state.value === STATE.PAUSED ? remaining.value : displayMs.value
-  return formatCountdown(ms ?? 0)
-})
-
-function toggle() {
-  if (state.value === STATE.IDLE)        start()
-  else if (state.value === STATE.PLAYING) pause()
-  else                                   resume()
-}
-
-function start() {
-  if (!ready.value) return
-  resetBoth()
-  state.value = STATE.PLAYING
-  syncPlaybackState()
-  nextKey = 'a'
-  tick()
-}
-
-function selectDuration(ms) {        // ms === null = 无限
-  if (!ready.value) return
-  duration.value = ms
-  start()                            // 复用现有音频启动:resetBoth → playing → tick()
-  if (ms != null) { endTime.value = Date.now() + ms; startCountdown() }
-}
-
-function onPreset(p) {               // 选择页按钮分发:自定义开面板,其余直接启动
-  if (p.key === 'custom') { openCustom(); return }
+function onPreset(p) {                 // 选择页按钮分发:自定义开面板,其余直接启动
+  if (p.key === 'custom') { audioOpen.value = false; customOpen.value = true; return }
   selectDuration(p.ms)
 }
-
-// 切换当前音源的单一入口：惰性烤制 → 绑定双实例 → 更新通知栏曲名，preparingKey 包夹其间。
-// onMounted 初始化与 selectAudio 都走这里，三步不散落、不漏 updateMediaMetadata。
-async function changeAudio(key) {
-  preparingKey.value = key
-  await prepareOne(key)
-  bindAudio(key)
-  updateMediaMetadata()
-  preparingKey.value = null
-}
-
-async function selectAudio(key) {       // idle 页下拉选中一项：切源 + 记忆 + 惰性烤制
-  if (key === selectedKey.value) { audioOpen.value = false; return }
-  selectedKey.value = key
-  localStorage.setItem(LS_KEY, key)
+function onSelectAudio(key) {          // 下拉选中:关下拉 + 切源(同 key 时 usePlayer 内部短路)
   audioOpen.value = false
-  await changeAudio(key)
-}
-
-function confirmCustom() {           // 自定义面板:时+分 → ms → 启动
-  if (!customValid.value) return
-  const ms = totalMinutes.value * 60_000
-  customOpen.value = false
-  selectDuration(ms)
-}
-
-function pause() {
-  state.value = STATE.PAUSED
-  const keep = nextKey === 'a' ? audioB : audioA
-  const drop = nextKey === 'a' ? audioA : audioB
-  if (!keep.paused) { keep.pause() }
-  drop.ontimeupdate = null; drop.pause(); drop.currentTime = 0
-  if (duration.value) remaining.value = Math.max(0, endTime.value - Date.now())  // 冻结剩余
-  endTime.value = null
-  stopCountdown()
-  syncPlaybackState()
-}
-
-function resume() {
-  state.value = STATE.PLAYING
-  if (duration.value && remaining.value != null) {                                // 墙钟重算
-    endTime.value = Date.now() + remaining.value
-    startCountdown()
-  }
-  syncPlaybackState()
-  const keep = nextKey === 'a' ? audioB : audioA
-  if (keep.readyState >= 2) playSeg(keep)
-}
-
-function stop() {                    // 彻底停:回选择页 / 卸载 / 倒计时归零 / 蓝牙 stop
-  state.value = STATE.IDLE
-  resetBoth()
-  stopCountdown()
-  duration.value = null
-  endTime.value = null
-  remaining.value = null
-  syncPlaybackState()
-}
-
-// 启动一段 audio，统一处理 autoplay policy 拦截（蓝牙/锁屏后首次播放可能被浏览器拒）。
-function playSeg(el) {
-  el.play().catch(() => showToast('播放被拦截，请点击页面按钮'))
-}
-
-function resetBoth() {
-  if (audioA) { audioA.ontimeupdate = null; audioA.pause(); audioA.currentTime = 0 }
-  if (audioB) { audioB.ontimeupdate = null; audioB.pause(); audioB.currentTime = 0 }
-}
-
-function startCountdown() {
-  stopCountdown()
-  onCountdownTick()
-  countdownTimer = setInterval(onCountdownTick, 250)
-}
-function stopCountdown() {
-  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
-}
-function onCountdownTick() {
-  if (state.value !== STATE.PLAYING || !duration.value || endTime.value == null) return
-  const left = endTime.value - Date.now()
-  const ms = Math.max(0, left)
-  if (ms !== displayMs.value) displayMs.value = ms   // 仅变化时写，避免每 250ms 无谓触发响应式
-  if (left <= 0) { showToast('时间到'); stop() }
-}
-
-function tick() {
-  if (state.value !== STATE.PLAYING) return
-  const el = nextKey === 'a' ? audioA : audioB
-  el.currentTime = 0
-  playSeg(el)
-  nextKey = nextKey === 'a' ? 'b' : 'a'
-
-  // 当前段播到 (duration - FADE) 秒时启动下一段；handler 一次性。
-  el.ontimeupdate = () => {
-    // ponytail: 暂停时只 return 不清 handler——继续播放还要靠它接下一段。
-    // （彻底停由 resetBoth 清，无需在此兜底；早期这里清自己导致暂停后再继续丢交接。）
-    if (state.value !== STATE.PLAYING) return
-    if (!el.duration) return
-    if (el.currentTime >= el.duration - FADE) {
-      el.ontimeupdate = null
-      tick()
-    }
-  }
-}
-
-// ---- Media Session：拦截蓝牙耳机等外部媒体的 play/pause/stop ----
-function syncPlaybackState() {
-  if ('mediaSession' in navigator) {
-    navigator.mediaSession.playbackState = playing.value ? 'playing' : 'paused'
-  }
-}
-// 通知栏/锁屏曲名随选中音源更新（修早期 title 硬编码 'Heavy Rain' 遗留）。
-function updateMediaMetadata() {
-  if (!('mediaSession' in navigator)) return
-  navigator.mediaSession.metadata = new MediaMetadata({
-    title: selectedName.value, artist: 'Sleep', album: '助眠'
-  })
-}
-// 一次性注册外部媒体键 handler。状态同步由 start/pause/resume/stop 核心函数内部调 syncPlaybackState 完成，
-// handler 不再重复调——否则每次外部键触发都同步两遍，且改同步逻辑要在 7 处分散改。
-function setupMediaSession() {
-  if (!('mediaSession' in navigator)) return
-  updateMediaMetadata()
-  const onPlay  = () => {
-    if (state.value === STATE.PAUSED) resume(); else if (state.value === STATE.IDLE) start()
-    showToast(playing.value ? '已继续' : '')
-  }
-  const onPause = () => {
-    if (playing.value) { pause(); showToast('已暂停') }
-  }
-  const onStop = () => { stop(); showToast('已结束') }
-  navigator.mediaSession.setActionHandler('play',      onPlay)
-  navigator.mediaSession.setActionHandler('pause',     onPause)
-  navigator.mediaSession.setActionHandler('stop',      onStop)
-  navigator.mediaSession.setActionHandler('playpause', () => playing.value ? onPause() : onPlay())
-}
-
-// ---- Toast ----
-function showToast(msg) {
-  toast.value = msg
-  if (toastTimer) clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => { toast.value = '' }, 2000)
+  selectAudio(key)
 }
 </script>
 
@@ -440,7 +47,7 @@ function showToast(msg) {
               <li
                 v-for="a in AUDIO_SOURCES" :key="a.key"
                 :class="['audio-item', { on: a.key === selectedKey, loading: preparingKey === a.key }]"
-                @click="selectAudio(a.key)"
+                @click="onSelectAudio(a.key)"
               >
                 <span class="audio-item-name">{{ a.name }}</span>
                 <!-- 缓存态图标:云端=未下载(点一下即下载)/本地=已落盘可离线/旋转=正在烤制 -->
@@ -475,65 +82,7 @@ function showToast(msg) {
       <div v-if="toast" class="toast">{{ toast }}</div>
     </Transition>
 
-    <!-- 自定义时长输入面板:径向圆盘选择器 -->
-    <Transition name="fade">
-      <div v-if="customOpen" class="overlay" @click.self="customOpen = false">
-        <div class="custom-card">
-          <!-- 顶部大数字 H : M -->
-          <div class="big-display">
-            <span :class="['part', { active: stage === 'h' }]">{{ bigH }}</span>
-            <span class="sep">:</span>
-            <span :class="['part', { active: stage === 'm' }]">{{ bigM }}</span>
-          </div>
-
-          <!-- 小时 / 分钟 切换标签 -->
-          <div class="stage-tabs">
-            <button :class="['tab', { on: stage === 'h' }]" @click="switchStage('h')">小时</button>
-            <button :class="['tab', { on: stage === 'm' }]" @click="switchStage('m')">分钟</button>
-          </div>
-
-          <!-- 圆盘 -->
-          <div class="disk-wrap">
-            <svg
-              ref="svgRef" viewBox="0 0 240 240" class="disk"
-              @pointerdown="onPointerDown"
-              @pointermove="onPointerMove"
-              @pointerup="onPointerUp"
-              @pointercancel="onPointerUp"
-            >
-              <!-- 外圈细环 -->
-              <circle :cx="DISK_C" :cy="DISK_C" :r="DISK_R + 16" fill="none" stroke="rgba(255,255,255,.1)" stroke-width="1"/>
-              <!-- 12 个数字 -->
-              <text
-                v-for="n in diskNumbers" :key="stage + '-' + n.v"
-                :x="n.pos.x" :y="n.pos.y"
-                :class="['disk-num', { sel: n.v === diskSelected }]"
-                text-anchor="middle" dominant-baseline="central"
-              >{{ n.label }}</text>
-              <!-- 指针:从圆心指向"正上方"盘边,再用 transform rotate 到当前角度 -->
-              <line
-                :x1="DISK_C" :y1="DISK_C"
-                :x2="DISK_C" :y2="DISK_C - DISK_R"
-                class="pointer"
-                :style="{ transform: `rotate(${pointerAngle}deg)`, transformOrigin: `${DISK_C}px ${DISK_C}px` }"
-              />
-              <!-- 指针末端圆点(随指针旋转) -->
-              <g
-                class="pointer-tip"
-                :style="{ transform: `rotate(${pointerAngle}deg)`, transformOrigin: `${DISK_C}px ${DISK_C}px` }"
-              >
-                <circle :cx="DISK_C" :cy="DISK_C - DISK_R" r="7" class="tip-dot"/>
-              </g>
-              <!-- 圆心小圆点 -->
-              <circle :cx="DISK_C" :cy="DISK_C" r="6" class="center-dot"/>
-            </svg>
-          </div>
-
-          <!-- 开始按钮 -->
-          <button class="custom-go" :disabled="!customValid" @click="confirmCustom">开始</button>
-        </div>
-      </div>
-    </Transition>
+    <CustomDurationPicker v-model:open="customOpen" @confirm="selectDuration" />
   </main>
 </template>
 
@@ -567,7 +116,7 @@ h1 {
   row-gap: 30px; column-gap: 22px; justify-content: center; justify-items: center; width: 100%;
 }
 
-/* 音源下拉框:V3 与圆块精确等宽(2×圆 + gap), 加存在感 */
+/* 音源下拉框:与圆块精确等宽(2×圆 + gap), 加存在感 */
 .audio-picker {
   position: relative; width: 100%;
   max-width: calc(2 * clamp(108px, 30vw, 138px) + 22px);
@@ -582,9 +131,7 @@ h1 {
 }
 .audio-chip:hover { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.2); }
 
-.dropdown-backdrop {
-  position: fixed; inset: 0; z-index: 9;   /* 透明背板,点外关闭 */
-}
+.dropdown-backdrop { position: fixed; inset: 0; z-index: 9; }   /* 透明背板,点外关闭 */
 .audio-dropdown {
   position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 10;
   margin: 0; padding: 6px; list-style: none;
@@ -657,75 +204,4 @@ h1 {
 }
 .toast-enter-active, .toast-leave-active { transition: opacity .25s; }
 .toast-enter-from, .toast-leave-to { opacity: 0; }
-
-/* 自定义时长输入面板:径向圆盘选择器 */
-.overlay {
-  position: fixed; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(7,6,15,.6); backdrop-filter: blur(4px);
-  z-index: 10;
-}
-.custom-card {
-  width: min(86vw, 320px);
-  background: rgba(30,22,56,.92);
-  border: 1px solid rgba(255,255,255,.1);
-  border-radius: 20px; padding: 24px;
-  display: flex; flex-direction: column; gap: 16px; align-items: center;
-  box-shadow: 0 12px 48px rgba(0,0,0,.5);
-}
-
-/* 顶部大数字 H : M */
-.big-display {
-  display: flex; align-items: baseline; gap: 4px;
-  font-size: clamp(48px, 14vw, 64px); font-weight: 200; line-height: 1;
-  letter-spacing: 2px; color: #f0eaff;
-  text-shadow: 0 0 32px rgba(167,139,250,.35);
-}
-.big-display .part { transition: color .18s, text-shadow .18s; color: #6f6390; }
-.big-display .part.active { color: #f0eaff; }
-.big-display .sep { color: #6f6390; }
-
-/* 小时/分钟 切换标签 */
-.stage-tabs { display: flex; gap: 8px; }
-.stage-tabs .tab {
-  border: 1px solid rgba(255,255,255,.12); background: transparent;
-  color: #9d8fc2; cursor: pointer;
-  padding: 5px 16px; border-radius: 999px; font-size: 13px; letter-spacing: 1px;
-  transition: background .18s, color .18s, border-color .18s;
-}
-.stage-tabs .tab.on {
-  background: rgba(167,139,250,.22); color: #fff; border-color: rgba(167,139,250,.6);
-}
-
-/* 圆盘 */
-.disk-wrap {
-  width: clamp(180px, 60vw, 240px); aspect-ratio: 1;
-  display: flex; align-items: center; justify-content: center;
-  user-select: none; touch-action: none;
-}
-.disk { width: 100%; height: 100%; cursor: pointer; overflow: visible; }
-.disk-num {
-  fill: #cfc3f0; font-size: 20px; font-weight: 400;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  transition: fill .15s, font-weight .15s;
-}
-.disk-num.sel { fill: #fff; font-weight: 700; }
-.pointer {
-  stroke: #a78bfa; stroke-width: 2; stroke-linecap: round;
-  /* 指针从圆心向"上"画到盘边:y 从 120 到 (120 - R) */
-  transition: transform .12s ease-out;
-}
-.pointer-tip { transition: transform .12s ease-out; }
-.tip-dot { fill: #a78bfa; }
-.center-dot { fill: #a78bfa; }
-
-.custom-go {
-  width: 100%; padding: 12px 0; border: none; cursor: pointer;
-  border-radius: 999px; font-size: 15px; letter-spacing: 1px; color: #fff;
-  background: linear-gradient(135deg, #a78bfa, #7c5cff);
-  box-shadow: 0 6px 24px rgba(124,92,255,.4);
-  transition: transform .12s, opacity .18s;
-}
-.custom-go:active:not(:disabled) { transform: scale(.98); }
-.custom-go:disabled { opacity: .4; cursor: not-allowed; }
 </style>

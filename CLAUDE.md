@@ -38,18 +38,19 @@ Rain/                              # 根目录即 Vite + Vue3 主项目（早期
 │   │   └── 06 - 旷野.mp3
 │   ├── favicon.svg                # fa-bed 矢量图（Font Awesome Free，CC BY 4.0）
 │   ├── icon-192.png / icon-512.png # PWA 安装图标（iOS「添加到主屏幕」只认位图）
-│   ├── icons.svg
 │   └── audio-test.html            # 早期验证用独立 demo（双 audio 并发 + 自动循环），保留供回溯
 └── src/
-    ├── App.vue                    # 全部 UI + 播放/轮换/暂停/倒计时/选曲/缓存态都在这一个 SFC（~708 行）
+    ├── App.vue                    # UI 编排：选择页/播放页、音源下拉、面板开关（~170 行）
+    ├── usePlayer.js               # 播放引擎 composable：双 audio 轮换、烤 WAV、倒计时、Media Session、缓存态
+    ├── wav-encoder.js             # 16-bit PCM WAV 编码器（纯函数）+ 可运行自检
     ├── audio-sources.js           # 音源清单（key/name/file）+ 可运行自检
     ├── countdown.js               # 倒计时预设 + formatCountdown + 可运行自检
     ├── main.js
-    ├── assets/                    # Vite 脚手架残留（hero.png/vue.svg/vite.svg），未引用，可删
-    └── components/                # 空目录，脚手架残留，可删
+    └── components/
+        └── CustomDurationPicker.vue  # 自定义时长径向圆盘选择器（v-model:open + emit confirm ms）
 ```
 
-> 残留目录 `app/`（早期平移前的旧目录，已空）、`src/assets/`、`src/components/`、`docs/` 均为脚手架遗留，未实际使用，待清理。
+> App.vue 早期是 ~700 行单文件 SFC（UI + 播放引擎 + 圆盘选择器全在一起），已按关注点拆为 UI 编排 + usePlayer composable + wav-encoder + CustomDurationPicker 组件。`docs/` 为早期设计稿存档，未参与构建。
 
 dev server：`npm run dev`（用 `vite.config.js`），手机用输出的 `Network: http://<局域网IP>:<端口>/` 访问（手机与电脑同 WiFi）。
 生产构建：`npm run build:pwa`（用 `vite.config.pwa.js`，注入 PWA）。两套配置分开——PWA 需要 service worker 与 manifest 这两个独立外链文件，dev 用不到，比 if/else 污染主配置清晰。部署走 `.github/workflows/deploy.yml`（push main 自动 build:pwa → GitHub Pages）。
@@ -59,7 +60,7 @@ dev server：`npm run dev`（用 `vite.config.js`），手机用输出的 `Netwo
 
 **淡变烤进 WAV + 双 `<audio>` 实例 + timeupdate 触发轮换。** 关键点：
 
-1. **音频预处理（惰性、按音源 key 缓存）**：首次选中某音源时 `prepareOne(key)` —— fetch mp3 → `decodeAudioData` 解码成样本 → 对每个样本乘振幅系数（前 5s 淡入、后 5s 淡出）→ 手写 16-bit PCM WAV 编码器（Web Audio 无原生 encode）→ `Blob` + `URL.createObjectURL`，存入 `blobCache`（Map: key→blobUrl）。
+1. **音频预处理（惰性、按音源 key 缓存）**：首次选中某音源时 `prepareOne(key)` —— fetch mp3 → `decodeAudioData` 解码成样本 → 对每个样本乘振幅系数（前 5s 淡入、后 5s 淡出）→ 手写 16-bit PCM WAV 编码器（[wav-encoder.js](src/wav-encoder.js)，Web Audio 无原生 encode）→ `Blob` + `URL.createObjectURL`，存入 `blobCache`（Map: key→blobUrl）。预处理与播放引擎均在 [usePlayer.js](src/usePlayer.js) composable 里。
    - 淡变**烤在波形里**，播放时**零 JS 控音量** → 精度无损（采样级）、熄屏无忧、无轮询粗糙问题。这是本方案能成立的关键。
    - **等功率淡变**：振幅系数用 `Math.sqrt(i/fadeSamples)`（非早期线性）。重叠段两路功率总和近似恒定，消除交叉处听感洼。淡入/淡出对称用同一 g。
 2. **双 `<audio>` 实例**（A、B）都指向当前选中音源的 blob URL。`loop=false`（每段播一遍自然停）。`bindAudio(key)` 在切源时把两个实例的 `src` 换到新 blob。
@@ -77,7 +78,7 @@ dev server：`npm run dev`（用 `vite.config.js`），手机用输出的 `Netwo
 ## 倒计时（已验收）
 
 - 预设 [src/countdown.js](src/countdown.js)：10 分 / 30 分 / 1 小时 / 2 小时 / 无限 / 自定义。
-- **自定义 = 径向圆盘选择器**（App.vue 内联）：两段式（先选小时、释放后自动切分钟），SVG 圆盘 + Pointer Events，tap 与 drag 统一走 atan2→角度→值映射。
+- **自定义 = 径向圆盘选择器**（独立组件 [src/components/CustomDurationPicker.vue](src/components/CustomDurationPicker.vue)，`v-model:open` + `emit('confirm', ms)`）：两段式（先选小时、释放后自动切分钟），SVG 圆盘 + Pointer Events，tap 与 drag 统一走 atan2→角度→值映射。
 - **计时用墙钟（`Date.now()` + setInterval 250ms 刷新显示），与音频 `timeupdate` 交接完全独立**。两条时间线解耦：倒计时管"何时停"，timeupdate 管"段间如何交接"。
 - `formatCountdown(ms)`：≥1 小时 `H:MM:SS`，否则 `M:SS`，向上取整到秒。文件带自检。
 
@@ -94,11 +95,11 @@ dev server：`npm run dev`（用 `vite.config.js`），手机用输出的 `Netwo
 
 ## Media Session / 外部媒体键（蓝牙耳机）
 
-- `setupMediaSession()` 在 prepare 完成后注册，挂 `play`/`pause`/`stop`/`playpause` handler，都接到统一的三态控制。
+- `setupMediaSession()` 在 prepare 完成后注册，挂 `play`/`pause`/`stop`/`playpause` handler，都接到统一的三态控制（均在 [usePlayer.js](src/usePlayer.js)）。
 - 蓝牙耳机的播放/暂停键经此拦截 → 走原地 pause/resume（**已解决早期"蓝牙键暂停后继续就丢失循环"的问题**）。
 - `syncPlaybackState()` 同步通知栏播放/暂停状态。
 - HTML5 `<audio>` 激活系统媒体会话 → 通知栏/锁屏有媒体控件（实测移动端可用）。
-- ⚠️ **已知滞后点**：`metadata` 里 `title:'Heavy Rain'` 仍硬编码，未随选中音源更新（artist 已改为 `'Sleep'`）。做"通知栏显示当前音源名"时一并处理。
+- **通知栏曲名随选中音源更新**：`updateMediaMetadata()` 把 `metadata.title` 设为 `selectedName`，在 `changeAudio()` 切源时一并调用（早期 `title` 硬编码 `'Heavy Rain'` 已修复）。
 
 ## PWA / 离线 / 缓存态图标（已验收）
 
@@ -106,7 +107,7 @@ dev server：`npm run dev`（用 `vite.config.js`），手机用输出的 `Netwo
 - **两层缓存策略**（workbox）：
   - **app shell 预缓存**：`globPatterns` 含 `js/css/html/svg/png/json/woff2/woff`。**woff2 必须进 precache**——否则 Font Awesome 的 `<i class="fa-">` 在离线刷新时 CSS 引用的字体 404，渲染成豆腐块。
   - **音频运行时缓存**：`.mp3` 走 `CacheFirst`（缓存名 `sleep-audio`，`maxEntries:20`，一年），首次播放后落盘，再次/离线即取本地；不塞进安装预缓存以免首装拖慢。`maximumFileSizeToCacheInBytes: 3MB` 卡住大文件。
-- **缓存态图标三态**（App.vue）：`preparingKey` / `cachedKeys` / `selectedKey` 驱动——准备中（`fa-circle-notch` 旋转）/ 已缓存本地（`fa-circle-check`）/ 云端未下载（`fa-cloud`，点击即下载烤制）。idle 选择页的下拉项与播放页胶囊各显示一套，胶囊反映**当前选中音源**的真实离线态。
+- **缓存态图标三态**（usePlayer.js 的 `cacheState()` + `CACHE_ICON` 表；App.vue 模板的下拉项与胶囊各 `v-bind` 一处复用）：`preparingKey` / `cachedKeys` / `selectedKey` 驱动——准备中（`fa-circle-notch` 旋转）/ 已缓存本地（`fa-circle-check`）/ 云端未下载（`fa-cloud`，点击即下载烤制）。胶囊反映**当前选中音源**的真实离线态。
 - ⚠️ **缓存态比对的坑（已修复）**：`navigator.onLine` 判断需与服务端缓存名比对，两边 URL 必须都用 `new URL(..., location.href).pathname` 规范化后再比，否则刷新后图标掉回云端（commit `91b9a8b`）。缓存名 `'sleep-audio'` 来自 sw 里 `.mp3` 的 CacheFirst 路由。
 - **Font Awesome 本地内置**：依赖 `@fortawesome/fontawesome-free`，字体随构建打进 precache，离线可用（修复早期离线 FA 字体变豆腐块，commit `8e2f3e9`）。
 - **图标**：`public/favicon.svg`（矢量）+ `icon-192/512.png`（位图，iOS Safari「添加到主屏幕」只认位图）。PNG 由 `scripts/gen-icons.mjs` 用 sharp 从 fa-bed 渲染，产物提交进 repo，换图标改 SVG 再跑一遍。
@@ -117,7 +118,7 @@ dev server：`npm run dev`（用 `vite.config.js`），手机用输出的 `Netwo
 - **走 HTML5 `<audio>` 不走 Web Audio 播放**：移动端实测双 `<audio>` 可并发且**熄屏持续播放**。Web Audio（howler 默认）做交叉淡变虽淡变更精确，但**熄屏会被系统挂起、无通知栏控件**——助眠场景不可接受。已放弃 Web Audio 播放路线。
 - **淡变必须烤进 WAV，不能靠 `<audio>.volume` JS 轮询**：`<audio>` 无原生淡变 API，`volume` 是瞬变的；JS 轮询模拟精度差且熄屏/后台易糙。烤进波形是正解。
 - **淡变用等功率（sqrt）不用线性**：线性淡变在两段重叠的交叉处，功率总和在中点跌出明显听感洼。sqrt 让重叠段功率近似恒定。
-- **howler.js 已从方案中移除**：早期试过，最终原生 `<audio>` + 烤 WAV 更干净。`node_modules` 里还装着 howler，未清理（无害，可删）。
+- **howler.js 已从方案中移除**：早期试过，最终原生 `<audio>` + 烤 WAV 更干净。依赖也已从 package.json 卸载。
 - **触发用 timeupdate 不用 setInterval**：见上。倒计时的 setInterval 只管显示刷新（墙钟），不碰音频交接。
 - 早期单文件 demo（demoA = 原生 loop 硬拼、demoB = Web Audio crossfade，文件已删）已证明：原生 loop 接缝硬（用户否决）、Web Audio 熄屏挂起（用户否决）。当前方案是这两者的最佳折中。
 
@@ -131,7 +132,8 @@ dev server：`npm run dev`（用 `vite.config.js`），手机用输出的 `Netwo
 - PWA：可安装到主屏幕、离线可用（app shell + 音频两层缓存）。
 - 缓存态图标三态（准备中/已缓存/云端），下拉项与胶囊各一套。
 - GitHub Pages 自动部署（push main → build:pwa → Pages）。
+- 代码结构：App.vue 拆为 UI 编排（~170 行）+ [usePlayer.js](src/usePlayer.js) composable（播放引擎）+ [wav-encoder.js](src/wav-encoder.js)（纯函数）+ [CustomDurationPicker.vue](src/components/CustomDurationPicker.vue) 组件；三个数据/工具文件（audio-sources / countdown / wav-encoder）均带 `node` 可运行自检。
 
 ## 下一步（用户未提，勿主动做）
 
-音量控制、Media Session `title` 动态化（随选中音源更新通知栏曲名）、清理脚手架残留目录（`app/`、`src/assets/`、`src/components/`、`docs/`）、UI 打磨。等用户主动提出。
+音量控制、UI 打磨。等用户主动提出。

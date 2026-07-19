@@ -6,7 +6,7 @@
 
 ## 技术栈
 
-Vite + Vue 3（单 SFC `src/App.vue`）+ `vite-plugin-pwa`（manifest + service worker）。核心思路：把交叉淡变**烤进 WAV 波形**（等功率 sqrt 曲线），播放时零 JS 控音量；双 `<audio>` 实例 + `timeupdate` 触发轮换，避开 Web Audio 在移动端熄屏被挂起的问题。图标用 Font Awesome（本地内置，离线可用）。
+Vite + Vue 3（主 SFC `src/App.vue` + `usePlayer` composable + `CustomDurationPicker` 组件）+ `vite-plugin-pwa`（manifest + service worker）。核心思路：把交叉淡变**烤进 WAV 波形**（等功率 sqrt 曲线），播放时零 JS 控音量；双 `<audio>` 实例 + `timeupdate` 触发轮换，避开 Web Audio 在移动端熄屏被挂起的问题。图标用 Font Awesome（本地内置，离线可用）。
 
 ## 开发
 
@@ -20,7 +20,10 @@ npm run build:pwa    # 生产构建（注入 PWA：manifest + service worker）
 
 ## 项目结构
 
-- [src/App.vue](src/App.vue) — 全部 UI 与播放/轮换/暂停/倒计时/选曲/缓存态逻辑
+- [src/App.vue](src/App.vue) — UI 编排：选择页/播放页、音源下拉、面板开关
+- [src/usePlayer.js](src/usePlayer.js) — 播放引擎 composable：双 audio 轮换、烤 WAV、倒计时、Media Session、缓存态
+- [src/wav-encoder.js](src/wav-encoder.js) — 16-bit PCM WAV 编码器（纯函数 + 自检）
+- [src/components/CustomDurationPicker.vue](src/components/CustomDurationPicker.vue) — 自定义时长径向圆盘选择器
 - [src/audio-sources.js](src/audio-sources.js) — 音源清单（加音源：往 `public/audio/` 丢 mp3 + 加一行）
 - [src/countdown.js](src/countdown.js) — 倒计时预设与格式化
 - [vite.config.js](vite.config.js) / [vite.config.pwa.js](vite.config.pwa.js) — dev 配置 / 生产 PWA 构建配置
