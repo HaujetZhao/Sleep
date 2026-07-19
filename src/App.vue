@@ -116,20 +116,25 @@ function selectDuration(ms) {        // ms === null = 无限
 
 function pause() {
   state.value = STATE.PAUSED
-  // 保留段 = 非 nextKey 且在播（即"最新启动"的那段）；nextKey 那段若空闲则不动。
   const keep = nextKey === 'a' ? audioB : audioA
   const drop = nextKey === 'a' ? audioA : audioB
-  if (!keep.paused) { keep.pause() }                       // 保留进度，不清 handler
-  drop.ontimeupdate = null; drop.pause(); drop.currentTime = 0   // 已过交接点的老段，归零
+  if (!keep.paused) { keep.pause() }
+  drop.ontimeupdate = null; drop.pause(); drop.currentTime = 0
+  if (duration.value) remaining.value = Math.max(0, endTime.value - Date.now())  // 冻结剩余
+  endTime.value = null
+  stopCountdown()
   syncPlaybackState()
 }
 
 function resume() {
   state.value = STATE.PLAYING
+  if (duration.value && remaining.value != null) {                                // 墙钟重算
+    endTime.value = Date.now() + remaining.value
+    startCountdown()
+  }
   syncPlaybackState()
-  const keep = nextKey === 'a' ? audioB : audioA           // 暂停时保留的那一段
+  const keep = nextKey === 'a' ? audioB : audioA
   if (keep.readyState >= 2) keep.play().catch(() => showToast('播放被拦截'))
-  // ontimeupdate 仍在 keep 上，播到 duration-FADE 自然接下一段
 }
 
 function stop() {                    // 彻底停:回选择页 / 卸载 / 倒计时归零 / 蓝牙 stop
