@@ -512,17 +512,20 @@ h1 {
 .page { display: flex; flex-direction: column; align-items: center; gap: 18px; width: 100%; max-width: 360px; }
 
 /* 选择页:顶部音源下拉 + 两列圆按钮 */
-.select-page { gap: 22px; }
+.select-page { gap: 34px; }
 .preset-grid {
-  display: grid; grid-template-columns: repeat(2, 1fr);
-  gap: 18px; justify-items: center; width: 100%;
+  display: grid; grid-template-columns: repeat(2, auto);
+  row-gap: 30px; column-gap: 22px; justify-content: center; justify-items: center; width: 100%;
 }
 
-/* 音源下拉框 */
-.audio-picker { position: relative; width: 100%; max-width: 240px; }
+/* 音源下拉框:V3 与圆块精确等宽(2×圆 + gap), 加存在感 */
+.audio-picker {
+  position: relative; width: 100%;
+  max-width: calc(2 * clamp(108px, 30vw, 138px) + 22px);
+}
 .audio-chip {
-  width: 100%; padding: 11px 18px; border: 1px solid rgba(255,255,255,.12);
-  border-radius: 999px; background: rgba(255,255,255,.06); color: #f0eaff;
+  width: 100%; padding: 13px 18px; border: 1px solid rgba(255,255,255,.18);
+  border-radius: 999px; background: rgba(255,255,255,.09); color: #f0eaff;
   font-size: 15px; letter-spacing: 1px; cursor: pointer;
   display: flex; align-items: center; justify-content: center; gap: 8px;
   backdrop-filter: blur(8px);
@@ -560,7 +563,7 @@ h1 {
 .dropdown-enter-active, .dropdown-leave-active { transition: opacity .18s, transform .18s; }
 .dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-6px); }
 .circle {
-  width: clamp(104px, 30vw, 132px); aspect-ratio: 1; border: none; cursor: pointer;
+  width: clamp(108px, 30vw, 138px); aspect-ratio: 1; border: none; cursor: pointer;
   border-radius: 50%;
   background: rgba(255,255,255,.08); color: #f0eaff;
   font-size: clamp(15px, 4vw, 18px); letter-spacing: 1px;
