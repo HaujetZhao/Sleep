@@ -25,8 +25,9 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // app shell 预缓存：只含代码/样式/图标，体积小、装上即离线壳
-        globPatterns: ['**/*.{js,css,html,svg,png,json}'],
+        // app shell 预缓存：代码/样式/图标 + Font Awesome webfont（woff2）。
+        // woff2 必须进 precache——否则关后端刷新时 CSS 引用的字体 404，<i class="fa-"> 渲染成豆腐块。
+        globPatterns: ['**/*.{js,css,html,svg,png,json,woff2,woff}'],
         // 音频（6 段 mp3 约 13MB）走运行时缓存：首次播放后落盘，再次/离线即取本地，
         // 不塞进安装预缓存以免首装拖慢。
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,

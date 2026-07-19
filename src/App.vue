@@ -131,7 +131,20 @@ let audioA = null, audioB = null
 let nextKey = 'a'
 let toastTimer = null
 
+// ponytail: 刷新后从 SW 的 Cache Storage 真实状态回填 cachedKeys，图标反映真实离线态而非内存态。
+// 缓存名 'sleep-audio' 来自 sw.js 里 .mp3 的 CacheFirst 路由（vite-plugin-pwa 生成）。
+async function syncCachedFromSW() {
+  if (!('caches' in window)) return
+  let cache
+  try { cache = await caches.open('sleep-audio') } catch { return }
+  const paths = new Set((await cache.keys()).map(r => {
+    try { return decodeURIComponent(new URL(r.url).pathname) } catch { return '' }
+  }))
+  cachedKeys.value = AUDIO_SOURCES.filter(a => paths.has(a.file)).map(a => a.key)
+}
+
 onMounted(async () => {
+  syncCachedFromSW()   // 不 await：与下方 prepare 并行，回填后图标响应式更新
   const saved = localStorage.getItem(LS_KEY)
   const initial = AUDIO_SOURCES.some(a => a.key === saved) ? saved : AUDIO_SOURCES[0].key
   selectedKey.value = initial
