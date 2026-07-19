@@ -113,6 +113,7 @@ function onPointerUp() {
 }
 
 function openCustom() {                    // 进面板:重置 stage 为小时态
+  audioOpen.value = false
   stage.value = 'h'
   customOpen.value = true
 }
