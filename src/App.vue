@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { PRESETS, formatCountdown } from './countdown.js'
 
 // ponytail: 最终方案 —— 淡变烤进 WAV + 双 <audio> 实例定时轮换。
 // 播放时零 JS 控音量（精度无损、熄屏无忧），timeupdate 触发下一段（duration 自适应）。
@@ -10,6 +11,13 @@ const FADE = 5                  // 淡入淡出时长（秒，烤进 WAV）= 交
 
 const ready = ref(false)
 const toast = ref('')
+
+// ---- 计时(墙钟驱动,与音频 timeupdate 交接完全独立)----
+const duration  = ref(null)   // ms;null = 无限
+const endTime   = ref(null)   // 运行中的结束时间戳(playing 态)
+const remaining = ref(null)   // 暂停冻结的剩余 ms
+const displayMs = ref(0)      // 当前显示用剩余 ms(playing 态由 tick 刷新)
+let countdownTimer = null
 
 let blobUrl = null
 let audioA = null, audioB = null
@@ -78,6 +86,12 @@ const STATE = { IDLE: 'idle', PLAYING: 'playing', PAUSED: 'paused' }
 const state = ref(STATE.IDLE)
 const playing = computed(() => state.value === STATE.PLAYING)
 
+const countdownText = computed(() => {
+  if (!duration.value) return '∞'
+  const ms = state.value === STATE.PAUSED ? remaining.value : displayMs.value
+  return formatCountdown(ms ?? 0)
+})
+
 function toggle() {
   if (state.value === STATE.IDLE)        start()
   else if (state.value === STATE.PLAYING) pause()
@@ -91,6 +105,13 @@ function start() {
   syncPlaybackState()
   nextKey = 'a'
   tick()
+}
+
+function selectDuration(ms) {        // ms === null = 无限
+  if (!ready.value) return
+  duration.value = ms
+  start()                            // 复用现有音频启动:resetBoth → playing → tick()
+  if (ms != null) { endTime.value = Date.now() + ms; startCountdown() }
 }
 
 function pause() {
@@ -111,14 +132,34 @@ function resume() {
   // ontimeupdate 仍在 keep 上，播到 duration-FADE 自然接下一段
 }
 
-function stop() {                        // 彻底停（组件卸载用）
+function stop() {                    // 彻底停:回选择页 / 卸载 / 倒计时归零 / 蓝牙 stop
   state.value = STATE.IDLE
   resetBoth()
+  stopCountdown()
+  duration.value = null
+  endTime.value = null
+  remaining.value = null
+  syncPlaybackState()
 }
 
 function resetBoth() {
   if (audioA) { audioA.ontimeupdate = null; audioA.pause(); audioA.currentTime = 0 }
   if (audioB) { audioB.ontimeupdate = null; audioB.pause(); audioB.currentTime = 0 }
+}
+
+function startCountdown() {
+  stopCountdown()
+  onCountdownTick()
+  countdownTimer = setInterval(onCountdownTick, 250)
+}
+function stopCountdown() {
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+}
+function onCountdownTick() {
+  if (state.value !== STATE.PLAYING || !duration.value || endTime.value == null) return
+  const left = endTime.value - Date.now()
+  displayMs.value = Math.max(0, left)
+  if (left <= 0) { showToast('时间到'); stop() }
 }
 
 function tick() {
