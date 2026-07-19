@@ -1,10 +1,13 @@
 // 倒计时工具:纯函数 + 预设时长。抽出来便于独立自检。
 
 export const PRESETS = [
-  { key: '30m', label: '30 分钟', ms: 30 * 60_000 },
+  { key: '10m', label: '10 分',  ms: 10 * 60_000 },
+  { key: '30m', label: '30 分',  ms: 30 * 60_000 },
   { key: '1h',  label: '1 小时', ms: 60 * 60_000 },
   { key: '2h',  label: '2 小时', ms: 120 * 60_000 },
   { key: 'inf', label: '无限',   ms: null },
+  // ponytail: 自定义单独标记，ms 留空——在 App.vue 里拦截开输入面板，不直接当时长用。
+  { key: 'custom', label: '自定义', ms: undefined },
 ]
 
 // ms → 倒计时字符串。≥1 小时用 H:MM:SS,否则 M:SS。向上取整到秒。
