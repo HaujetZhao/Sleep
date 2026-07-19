@@ -242,8 +242,13 @@ function showToast(msg) {
         <div class="countdown">{{ countdownText }}</div>
         <div class="status">{{ playing ? '播放中' : '已暂停' }}</div>
         <div class="controls">
-          <button class="btn ghost" @click="goBack" aria-label="返回选择页">↩</button>
-          <button class="btn main"  @click="toggle" aria-label="暂停或继续">{{ playing ? '⏸' : '▶' }}</button>
+          <button class="btn ghost" @click="goBack" aria-label="返回选择页">
+            <i class="fa-solid fa-arrow-left"></i>
+          </button>
+          <button class="btn main" @click="toggle" aria-label="暂停或继续">
+            <i v-if="playing" class="fa-solid fa-pause"></i>
+            <i v-else class="fa-solid fa-play"></i>
+          </button>
         </div>
       </section>
     </Transition>
@@ -297,9 +302,11 @@ h1 {
 .btn {
   width: 64px; height: 64px; border-radius: 50%; border: none; cursor: pointer;
   font-size: 22px; color: #fff;
+  display: flex; align-items: center; justify-content: center;
   transition: transform .12s, background .18s, opacity .18s;
 }
 .btn:active { transform: scale(.94); }
+.btn .fa-play { transform: translateX(2px); }   /* 三角形右侧留白,微移光学居中 */
 .btn.main  { background: linear-gradient(135deg, #a78bfa, #7c5cff); box-shadow: 0 6px 24px rgba(124,92,255,.4); }
 .btn.ghost { background: rgba(255,255,255,.08); color: #cfc3f0; }
 .btn.ghost:hover { background: rgba(255,255,255,.16); }
