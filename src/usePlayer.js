@@ -18,6 +18,9 @@ const getAudioCtx = () => _audioCtx || (_audioCtx = new (window.AudioContext || 
 // 缓存态图标三态表。下拉项与胶囊共用，避免两处各写一份 v-if/v-else-if/v-else 导致文案/图标分叉。
 // class 引用的 .cache-ic/.local-ic 等样式定义在 App.vue（i 元素渲染在 App.vue 模板，scoped 命中）。
 const CACHE_ICON = {
+  // builtin：单文件构建（mp3 内联成 data URI）下，音源已随 HTML 内置，无云端/缓存概念，
+  // 复用 local-ic 绿勾样式，不新增 CSS。
+  builtin: { class: 'fa-solid fa-circle-check cache-ic local-ic',           title: '已内置（单文件）' },
   loading: { class: 'fa-solid fa-circle-notch fa-spin cache-ic loading-ic', title: '准备中' },
   local:   { class: 'fa-solid fa-circle-check cache-ic local-ic',           title: '已缓存到本地' },
   cloud:   { class: 'fa-solid fa-cloud cache-ic cloud-ic',                  title: '未缓存，点此下载到本地' },
@@ -36,8 +39,12 @@ export function usePlayer() {
   const blobCache = new Map()                        // key -> blobUrl（已烤制缓存）
   const cachedKeys = ref([])                         // 已烤制落盘的 key（驱动下拉项 云/本地 图标）
 
-  // 缓存态三态：'loading'(烤制中) | 'local'(已落盘) | 'cloud'(未下载)。
+  // 缓存态：'builtin'(单文件内联) | 'loading'(烤制中) | 'local'(已落盘) | 'cloud'(未下载)。
+  // builtin 优先：file 为 data URI 即单文件构建，直接静态内置态，跳过 SW 缓存判断
+  // （file:// 下 caches 空，否则会误显云端）。
   function cacheState(key) {
+    const src = AUDIO_SOURCES.find(a => a.key === key)
+    if (src && src.file.startsWith('data:')) return 'builtin'
     if (preparingKey.value === key) return 'loading'
     if (cachedKeys.value.includes(key)) return 'local'
     return 'cloud'

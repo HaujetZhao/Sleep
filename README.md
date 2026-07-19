@@ -13,6 +13,7 @@ Vite + Vue 3（主 SFC `src/App.vue` + `usePlayer` composable + `CustomDurationP
 ```bash
 npm install
 npm run dev          # 手机测试：用输出的 Network 地址（同 WiFi），端口默认 5184，被占会自动跳
+npm run build        # 单 HTML 构建：mp3/字体全内联进 index.html，拷到 U 盘 file:// 直开可用
 npm run build:pwa    # 生产构建（注入 PWA：manifest + service worker）
 ```
 
@@ -24,7 +25,7 @@ npm run build:pwa    # 生产构建（注入 PWA：manifest + service worker）
 - [src/usePlayer.js](src/usePlayer.js) — 播放引擎 composable：双 audio 轮换、烤 WAV、倒计时、Media Session、缓存态
 - [src/wav-encoder.js](src/wav-encoder.js) — 16-bit PCM WAV 编码器（纯函数 + 自检）
 - [src/components/CustomDurationPicker.vue](src/components/CustomDurationPicker.vue) — 自定义时长径向圆盘选择器
-- [src/audio-sources.js](src/audio-sources.js) — 音源清单（加音源：往 `public/audio/` 丢 mp3 + 加一行）
+- [src/audio-sources.js](src/audio-sources.js) — 音源清单（加音源：往 `src/audio/` 丢 mp3 + 加一条 import + 加一行）
 - [src/countdown.js](src/countdown.js) — 倒计时预设与格式化
 - [vite.config.js](vite.config.js) / [vite.config.pwa.js](vite.config.pwa.js) — dev 配置 / 生产 PWA 构建配置
 - [scripts/gen-icons.mjs](scripts/gen-icons.mjs) — 生成 PWA 安装图标（192/512 PNG）
@@ -32,7 +33,7 @@ npm run build:pwa    # 生产构建（注入 PWA：manifest + service worker）
 
 ## 音频素材来源
 
-`public/audio/` 下的部分高质量音频来自于 **[Adobe Audition Sound Effects](https://www.adobe.com/products/audition/offers/AdobeAuditionDLCSFX.html)**
+`src/audio/` 下的部分高质量音频来自于 **[Adobe Audition Sound Effects](https://www.adobe.com/products/audition/offers/AdobeAuditionDLCSFX.html)**
 
 | 音频名 | 来源 |
 |---|---|
