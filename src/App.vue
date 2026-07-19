@@ -1,16 +1,26 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { PRESETS, formatCountdown } from './countdown.js'
+import { AUDIO_SOURCES } from './audio-sources.js'
 
 // ponytail: 最终方案 —— 淡变烤进 WAV + 双 <audio> 实例定时轮换。
 // 播放时零 JS 控音量（精度无损、熄屏无忧），timeupdate 触发下一段（duration 自适应）。
 // 暂停 = 原地保留最新段进度；继续 = 原地接播（非从头）。
 
-const SRC = '/test-15s.mp3'
+const LS_KEY = 'rain:selected'   // localStorage 记忆上次选中的音源 key
 const FADE = 5                  // 淡入淡出时长（秒，烤进 WAV）= 交接重叠时长
 
 const ready = ref(false)
 const toast = ref('')
+
+// ---- 多音源选择 ----
+const audioOpen = ref(false)                       // 下拉框开合
+const preparingKey = ref(null)                     // 正在惰性烤制的 key（下拉项 loading 态）
+const selectedKey = ref(AUDIO_SOURCES[0].key)      // 当前选中；挂载时按 localStorage 覆盖
+const selectedName = computed(() =>
+  AUDIO_SOURCES.find(a => a.key === selectedKey.value)?.name ?? ''
+)
+const blobCache = new Map()                        // key -> blobUrl（已烤制缓存）
 
 // ---- 自定义时长输入面板(径向圆盘选择器) ----
 const customOpen = ref(false)
@@ -115,19 +125,30 @@ const remaining = ref(null)   // 暂停冻结的剩余 ms
 const displayMs = ref(0)      // 当前显示用剩余 ms(playing 态由 tick 刷新)
 let countdownTimer = null
 
-let blobUrl = null
 let audioA = null, audioB = null
 let nextKey = 'a'
 let toastTimer = null
 
-onMounted(prepare)
+onMounted(async () => {
+  const saved = localStorage.getItem(LS_KEY)
+  const initial = AUDIO_SOURCES.some(a => a.key === saved) ? saved : AUDIO_SOURCES[0].key
+  selectedKey.value = initial
+  preparingKey.value = initial
+  await prepareOne(initial)
+  bindAudio(initial)
+  preparingKey.value = null
+  ready.value = true
+  setupMediaSession()
+})
 onUnmounted(stop)
 
-// ---- 音频预处理：解码 → 前5s淡入/后5s淡出烤进振幅 → 编码 WAV → blob ----
-async function prepare() {
+// ---- 音频预处理：解码 → 前5s淡入/后5s淡出烤进振幅 → 编码 WAV → blob（按 key 缓存）----
+async function prepareOne(key) {
+  if (blobCache.has(key)) return blobCache.get(key)
+  const src = AUDIO_SOURCES.find(a => a.key === key).file
   const Ctx = window.AudioContext || window.webkitAudioContext
   const ctx = new Ctx()
-  const buf = await (await fetch(SRC)).arrayBuffer()
+  const buf = await (await fetch(src)).arrayBuffer()
   const ab = await ctx.decodeAudioData(buf)
   ctx.close()
 
@@ -140,14 +161,21 @@ async function prepare() {
       d[len - 1 - i] *= g  // 结尾淡出
     }
   }
-  blobUrl = URL.createObjectURL(new Blob([audioBufferToWav(ab)], { type: 'audio/wav' }))
+  const url = URL.createObjectURL(new Blob([audioBufferToWav(ab)], { type: 'audio/wav' }))
+  blobCache.set(key, url)
+  return url
+}
 
-  audioA = new Audio(blobUrl)
-  audioB = new Audio(blobUrl)
-  audioA.loop = audioB.loop = false
-
-  ready.value = true
-  setupMediaSession()
+// 把双 <audio> 实例绑定到指定 key 的 blob；播放/轮换/暂停核心只认 audioA/B，与此处来源解耦。
+function bindAudio(key) {
+  const url = blobCache.get(key)
+  if (!audioA) {
+    audioA = new Audio(url); audioB = new Audio(url)
+    audioA.loop = audioB.loop = false
+  } else if (audioA.src !== audioB.src || audioA.src !== url) {
+    audioA.src = url; audioB.src = url
+  }
+  resetBoth()   // 切源后确保干净（idle 态，安全）
 }
 
 // 最小 WAV 编码器（16-bit PCM）。Web Audio 无原生 encode，手写这几十行。
@@ -213,6 +241,17 @@ function selectDuration(ms) {        // ms === null = 无限
 function onPreset(p) {               // 选择页按钮分发:自定义开面板,其余直接启动
   if (p.key === 'custom') { openCustom(); return }
   selectDuration(p.ms)
+}
+
+async function selectAudio(key) {       // idle 页下拉选中一项：切源 + 记忆 + 惰性烤制
+  if (key === selectedKey.value) { audioOpen.value = false; return }
+  selectedKey.value = key
+  localStorage.setItem(LS_KEY, key)
+  audioOpen.value = false
+  preparingKey.value = key
+  await prepareOne(key)
+  bindAudio(key)
+  preparingKey.value = null
 }
 
 function confirmCustom() {           // 自定义面板:时+分 → ms → 启动
