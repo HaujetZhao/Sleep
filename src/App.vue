@@ -378,11 +378,33 @@ function showToast(msg) {
     <h1>RAIN LOOP</h1>
     <Transition name="fade" mode="out-in">
       <!-- 选择页:idle -->
-      <section v-if="state === 'idle'" key="select" class="page select">
-        <button
-          v-for="p in PRESETS" :key="p.key" class="circle"
-          :disabled="!ready" @click="onPreset(p)"
-        >{{ p.label }}</button>
+      <section v-if="state === 'idle'" key="select" class="page select-page">
+        <div class="audio-picker">
+          <button class="audio-chip" @click="audioOpen = !audioOpen">
+            <span class="audio-name">{{ selectedName }}</span>
+            <span class="caret">▾</span>
+          </button>
+          <div v-if="audioOpen" class="dropdown-backdrop" @click="audioOpen = false"></div>
+          <Transition name="dropdown">
+            <ul v-if="audioOpen" class="audio-dropdown">
+              <li
+                v-for="a in AUDIO_SOURCES" :key="a.key"
+                :class="['audio-item', { on: a.key === selectedKey, loading: preparingKey === a.key }]"
+                @click="selectAudio(a.key)"
+              >
+                <span class="audio-item-name">{{ a.name }}</span>
+                <span v-if="a.key === selectedKey && preparingKey !== a.key" class="chk">✓</span>
+                <span v-if="preparingKey === a.key" class="loading-txt">准备中…</span>
+              </li>
+            </ul>
+          </Transition>
+        </div>
+        <div class="preset-grid">
+          <button
+            v-for="p in PRESETS" :key="p.key" class="circle"
+            :disabled="!ready" @click="onPreset(p)"
+          >{{ p.label }}</button>
+        </div>
       </section>
       <!-- 播放页:playing / paused -->
       <section v-else key="play" class="page play">
@@ -488,11 +510,52 @@ h1 {
 /* 两态共用 */
 .page { display: flex; flex-direction: column; align-items: center; gap: 18px; width: 100%; max-width: 360px; }
 
-/* 选择页:两列圆按钮 */
-.select {
+/* 选择页:顶部音源下拉 + 两列圆按钮 */
+.select-page { gap: 22px; }
+.preset-grid {
   display: grid; grid-template-columns: repeat(2, 1fr);
-  gap: 18px; justify-items: center;
+  gap: 18px; justify-items: center; width: 100%;
 }
+
+/* 音源下拉框 */
+.audio-picker { position: relative; width: 100%; max-width: 240px; }
+.audio-chip {
+  width: 100%; padding: 11px 18px; border: 1px solid rgba(255,255,255,.12);
+  border-radius: 999px; background: rgba(255,255,255,.06); color: #f0eaff;
+  font-size: 15px; letter-spacing: 1px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  backdrop-filter: blur(8px);
+  transition: background .18s, border-color .18s;
+}
+.audio-chip:hover { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.2); }
+.audio-chip .caret { opacity: .6; font-size: 12px; }
+
+.dropdown-backdrop {
+  position: fixed; inset: 0; z-index: 9;   /* 透明背板,点外关闭 */
+}
+.audio-dropdown {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 10;
+  margin: 0; padding: 6px; list-style: none;
+  background: rgba(30,22,56,.95); border: 1px solid rgba(255,255,255,.12);
+  border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  backdrop-filter: blur(10px);
+  max-height: 240px; overflow-y: auto;     /* 固定高度,文件多则框内滚 */
+}
+.audio-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; border-radius: 9px; cursor: pointer;
+  font-size: 14px; color: #cfc3f0;
+  transition: background .15s, color .15s;
+}
+.audio-item:hover { background: rgba(255,255,255,.07); }
+.audio-item.on { background: rgba(167,139,250,.2); color: #fff; }
+.audio-item.loading { opacity: .6; cursor: progress; }
+.audio-item .chk { color: #a78bfa; font-size: 13px; }
+.audio-item .loading-txt { font-size: 12px; color: #9d8fc2; }
+
+/* 下拉开合过渡 */
+.dropdown-enter-active, .dropdown-leave-active { transition: opacity .18s, transform .18s; }
+.dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-6px); }
 .circle {
   width: clamp(104px, 30vw, 132px); aspect-ratio: 1; border: none; cursor: pointer;
   border-radius: 50%;
