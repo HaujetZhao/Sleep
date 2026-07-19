@@ -147,6 +147,10 @@ function stop() {                    // 彻底停:回选择页 / 卸载 / 倒计
   syncPlaybackState()
 }
 
+function goBack() {                   // 播放页"返回"键:停拔回选择页
+  stop()
+}
+
 function resetBoth() {
   if (audioA) { audioA.ontimeupdate = null; audioA.pause(); audioA.currentTime = 0 }
   if (audioB) { audioB.ontimeupdate = null; audioB.pause(); audioB.currentTime = 0 }
@@ -207,9 +211,10 @@ function setupMediaSession() {
     if (playing.value) { pause(); showToast('已暂停') }
     syncPlaybackState()
   }
+  const onStop = () => { stop(); showToast('已结束'); syncPlaybackState() }
   navigator.mediaSession.setActionHandler('play',      onPlay)
   navigator.mediaSession.setActionHandler('pause',     onPause)
-  navigator.mediaSession.setActionHandler('stop',      onPause)
+  navigator.mediaSession.setActionHandler('stop',      onStop)
   navigator.mediaSession.setActionHandler('playpause', () => playing.value ? onPause() : onPlay())
 }
 
