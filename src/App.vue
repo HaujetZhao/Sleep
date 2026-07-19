@@ -518,7 +518,7 @@ function showToast(msg) {
 :root { color-scheme: dark; }
 main {
   position: relative;
-  min-height: 100vh; min-height: 100dvh;
+  min-height: 100%;            /* 不用 vh/dvh——锁死 #app 视口高度,免受下拉刷新过滚动脱钩影响 */
   display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 28px;
   padding: 24px; padding-bottom: calc(24px + env(safe-area-inset-bottom));

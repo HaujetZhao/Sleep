@@ -9,7 +9,12 @@
       /* 全局重置:去掉 body 默认 8px 白边;背景与渐变底部同色防白闪;关掉移动端点击高亮;
          box-sizing border-box 让 main 的 100vh + padding 不再溢出导致滚动 */
       *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-      html, body { margin: 0; padding: 0; min-height: 100%; background: #07060f; }
+      /* 把文档锁死在视口内:height 100% 链式撑满,overflow hidden 杜绝整页滚动,
+         overscroll-behavior none 关掉 Android Chrome 下拉刷新的过滚动——
+         那是导致 100vh 与可见区脱钩、背景变长可滚的根因 */
+      html, body { margin: 0; padding: 0; height: 100%; background: #07060f; overflow: hidden;
+                   overscroll-behavior: none; }
+      #app { height: 100%; }
     </style>
   </head>
   <body>
