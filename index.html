@@ -7,8 +7,9 @@
     <title>Rain Loop</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
     <style>
-      /* 全局重置:去掉 body 默认 8px 白边;背景与渐变底部同色防白闪;关掉移动端点击高亮 */
-      * { -webkit-tap-highlight-color: transparent; }
+      /* 全局重置:去掉 body 默认 8px 白边;背景与渐变底部同色防白闪;关掉移动端点击高亮;
+         box-sizing border-box 让 main 的 100vh + padding 不再溢出导致滚动 */
+      *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
       html, body { margin: 0; padding: 0; min-height: 100%; background: #07060f; }
     </style>
   </head>
