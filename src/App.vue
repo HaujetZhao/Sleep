@@ -133,14 +133,20 @@ let toastTimer = null
 
 // ponytail: 刷新后从 SW 的 Cache Storage 真实状态回填 cachedKeys，图标反映真实离线态而非内存态。
 // 缓存名 'sleep-audio' 来自 sw.js 里 .mp3 的 CacheFirst 路由（vite-plugin-pwa 生成）。
+// 注意比较须用绝对 pathname：a.file 在 PWA 构建下是相对 './audio/...'（base:'./'），而 cache 里的
+// Request 是绝对 URL（pathname 为 '/audio/...'，或部署子路径 '/Sleep/audio/...'）。直接字符串比
+// 永不相等 → 刷新后图标掉回云端。两边都用 new URL(..., location.href).pathname 规范化后再比。
 async function syncCachedFromSW() {
   if (!('caches' in window)) return
   let cache
   try { cache = await caches.open('sleep-audio') } catch { return }
-  const paths = new Set((await cache.keys()).map(r => {
+  const cached = new Set((await cache.keys()).map(r => {
     try { return decodeURIComponent(new URL(r.url).pathname) } catch { return '' }
   }))
-  cachedKeys.value = AUDIO_SOURCES.filter(a => paths.has(a.file)).map(a => a.key)
+  cachedKeys.value = AUDIO_SOURCES.filter(a => {
+    try { return cached.has(decodeURIComponent(new URL(a.file, location.href).pathname)) }
+    catch { return false }
+  }).map(a => a.key)
 }
 
 onMounted(async () => {
