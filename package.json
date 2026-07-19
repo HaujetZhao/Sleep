@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@fortawesome/fontawesome-free": "^7.3.1",
-    "howler": "^2.2.4",
     "vue": "^3.5.39"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 // 音源清单：加音频只需往 public/audio/ 丢 mp3 + 这里加一行。
 // key  = 文件名（含后缀，稳定唯一）
-// name = 下拉显示文字（= 文件名去后缀；想更友好可改成中文，如 '雨声'）
+// name = 下拉显示文字（手填中文，与文件名解耦，可自由起更友好的名字）
 // file = audio/<文件名> 在 base 下的 URL（GitHub Pages 部署在 /Sleep/ 子路径，
 //        绝对 /audio/ 会 404，故用 vite 的 BASE_URL 前缀拼出正确路径）
 // ponytail: BASE_URL 在 node 自检环境下为 undefined，回退 '/' 让自检通过。

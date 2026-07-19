@@ -10,6 +10,11 @@ import { AUDIO_SOURCES } from './audio-sources.js'
 const LS_KEY = 'rain:selected'   // localStorage 记忆上次选中的音源 key
 const FADE = 5                  // 淡入淡出时长（秒，烤进 WAV）= 交接重叠时长
 
+// ponytail: AudioContext 只借它做 decodeAudioData，不占音频图节点——模块级共享一个，永不 close。
+// 早期每次 prepareOne 都 new+close，切 6 个音源就付 6 次硬件握手成本（移动端 Safari 尤敏感）。
+let _audioCtx = null
+const getAudioCtx = () => _audioCtx || (_audioCtx = new (window.AudioContext || window.webkitAudioContext)())
+
 const ready = ref(false)
 const toast = ref('')
 
@@ -23,11 +28,25 @@ const selectedName = computed(() =>
 const blobCache = new Map()                        // key -> blobUrl（已烤制缓存）
 const cachedKeys = ref([])                         // 已烤制落盘的 key（驱动下拉项 云/本地 图标）
 
+// 缓存态三态：'loading'(烤制中) | 'local'(已落盘) | 'cloud'(未下载)。下拉项与胶囊共用此判定 +
+// CACHE_ICON 表，避免两处各写一份 v-if/v-else-if/v-else 导致文案/图标分叉。
+function cacheState(key) {
+  if (preparingKey.value === key) return 'loading'
+  if (cachedKeys.value.includes(key)) return 'local'
+  return 'cloud'
+}
+const CACHE_ICON = {
+  loading: { class: 'fa-solid fa-circle-notch fa-spin cache-ic loading-ic', title: '准备中' },
+  local:   { class: 'fa-solid fa-circle-check cache-ic local-ic',           title: '已缓存到本地' },
+  cloud:   { class: 'fa-solid fa-cloud cache-ic cloud-ic',                  title: '未缓存，点此下载到本地' },
+}
+
 // ---- 自定义时长输入面板(径向圆盘选择器) ----
 const customOpen = ref(false)
 const customH = ref(0)
 const customM = ref(30)
-const customValid = computed(() => customH.value * 60 + customM.value > 0)
+const totalMinutes = computed(() => customH.value * 60 + customM.value)
+const customValid = computed(() => totalMinutes.value > 0)
 const stage = ref('h')                    // 'h' = 选小时, 'm' = 选分钟
 
 // 圆盘:0° 在顶(正上方),顺时针,每 30° 一个数字。两盘视觉同款,12 个数字均匀分布。
@@ -136,17 +155,17 @@ let toastTimer = null
 // 注意比较须用绝对 pathname：a.file 在 PWA 构建下是相对 './audio/...'（base:'./'），而 cache 里的
 // Request 是绝对 URL（pathname 为 '/audio/...'，或部署子路径 '/Sleep/audio/...'）。直接字符串比
 // 永不相等 → 刷新后图标掉回云端。两边都用 new URL(..., location.href).pathname 规范化后再比。
+// 把任意 URL 字符串规范化为可比较的 pathname。两边（cache 里的 Request.url 与 a.file）都过这一层，
+// 保证比对严格对称——任一边少一步就刷新后图标掉回云端（commit 91b9a8b 踩过的坑）。
+const normalizePath = urlStr => {
+  try { return decodeURIComponent(new URL(urlStr, location.href).pathname) } catch { return '' }
+}
 async function syncCachedFromSW() {
   if (!('caches' in window)) return
   let cache
   try { cache = await caches.open('sleep-audio') } catch { return }
-  const cached = new Set((await cache.keys()).map(r => {
-    try { return decodeURIComponent(new URL(r.url).pathname) } catch { return '' }
-  }))
-  cachedKeys.value = AUDIO_SOURCES.filter(a => {
-    try { return cached.has(decodeURIComponent(new URL(a.file, location.href).pathname)) }
-    catch { return false }
-  }).map(a => a.key)
+  const cached = new Set((await cache.keys()).map(r => normalizePath(r.url)))
+  cachedKeys.value = AUDIO_SOURCES.filter(a => cached.has(normalizePath(a.file))).map(a => a.key)
 }
 
 onMounted(async () => {
@@ -154,10 +173,7 @@ onMounted(async () => {
   const saved = localStorage.getItem(LS_KEY)
   const initial = AUDIO_SOURCES.some(a => a.key === saved) ? saved : AUDIO_SOURCES[0].key
   selectedKey.value = initial
-  preparingKey.value = initial
-  await prepareOne(initial)
-  bindAudio(initial)
-  preparingKey.value = null
+  await changeAudio(initial)
   ready.value = true
   setupMediaSession()
 })
@@ -167,11 +183,8 @@ onUnmounted(stop)
 async function prepareOne(key) {
   if (blobCache.has(key)) return blobCache.get(key)
   const src = AUDIO_SOURCES.find(a => a.key === key).file
-  const Ctx = window.AudioContext || window.webkitAudioContext
-  const ctx = new Ctx()
   const buf = await (await fetch(src)).arrayBuffer()
-  const ab = await ctx.decodeAudioData(buf)
-  ctx.close()
+  const ab = await getAudioCtx().decodeAudioData(buf)
 
   const len = ab.length, sr = ab.sampleRate, fadeSamples = FADE * sr
   for (let c = 0; c < ab.numberOfChannels; c++) {
@@ -265,20 +278,27 @@ function onPreset(p) {               // 选择页按钮分发:自定义开面板
   selectDuration(p.ms)
 }
 
+// 切换当前音源的单一入口：惰性烤制 → 绑定双实例 → 更新通知栏曲名，preparingKey 包夹其间。
+// onMounted 初始化与 selectAudio 都走这里，三步不散落、不漏 updateMediaMetadata。
+async function changeAudio(key) {
+  preparingKey.value = key
+  await prepareOne(key)
+  bindAudio(key)
+  updateMediaMetadata()
+  preparingKey.value = null
+}
+
 async function selectAudio(key) {       // idle 页下拉选中一项：切源 + 记忆 + 惰性烤制
   if (key === selectedKey.value) { audioOpen.value = false; return }
   selectedKey.value = key
   localStorage.setItem(LS_KEY, key)
   audioOpen.value = false
-  preparingKey.value = key
-  await prepareOne(key)
-  bindAudio(key)
-  preparingKey.value = null
+  await changeAudio(key)
 }
 
 function confirmCustom() {           // 自定义面板:时+分 → ms → 启动
   if (!customValid.value) return
-  const ms = (customH.value * 60 + customM.value) * 60_000
+  const ms = totalMinutes.value * 60_000
   customOpen.value = false
   selectDuration(ms)
 }
@@ -303,7 +323,7 @@ function resume() {
   }
   syncPlaybackState()
   const keep = nextKey === 'a' ? audioB : audioA
-  if (keep.readyState >= 2) keep.play().catch(() => showToast('播放被拦截'))
+  if (keep.readyState >= 2) playSeg(keep)
 }
 
 function stop() {                    // 彻底停:回选择页 / 卸载 / 倒计时归零 / 蓝牙 stop
@@ -316,8 +336,9 @@ function stop() {                    // 彻底停:回选择页 / 卸载 / 倒计
   syncPlaybackState()
 }
 
-function goBack() {                   // 播放页"返回"键:停拔回选择页
-  stop()
+// 启动一段 audio，统一处理 autoplay policy 拦截（蓝牙/锁屏后首次播放可能被浏览器拒）。
+function playSeg(el) {
+  el.play().catch(() => showToast('播放被拦截，请点击页面按钮'))
 }
 
 function resetBoth() {
@@ -336,7 +357,8 @@ function stopCountdown() {
 function onCountdownTick() {
   if (state.value !== STATE.PLAYING || !duration.value || endTime.value == null) return
   const left = endTime.value - Date.now()
-  displayMs.value = Math.max(0, left)
+  const ms = Math.max(0, left)
+  if (ms !== displayMs.value) displayMs.value = ms   // 仅变化时写，避免每 250ms 无谓触发响应式
   if (left <= 0) { showToast('时间到'); stop() }
 }
 
@@ -344,7 +366,7 @@ function tick() {
   if (state.value !== STATE.PLAYING) return
   const el = nextKey === 'a' ? audioA : audioB
   el.currentTime = 0
-  el.play().catch(() => showToast('播放被拦截，请点击页面按钮'))
+  playSeg(el)
   nextKey = nextKey === 'a' ? 'b' : 'a'
 
   // 当前段播到 (duration - FADE) 秒时启动下一段；handler 一次性。
@@ -366,21 +388,26 @@ function syncPlaybackState() {
     navigator.mediaSession.playbackState = playing.value ? 'playing' : 'paused'
   }
 }
-function setupMediaSession() {
+// 通知栏/锁屏曲名随选中音源更新（修早期 title 硬编码 'Heavy Rain' 遗留）。
+function updateMediaMetadata() {
   if (!('mediaSession' in navigator)) return
   navigator.mediaSession.metadata = new MediaMetadata({
-    title: 'Heavy Rain', artist: 'Sleep', album: '助眠'
+    title: selectedName.value, artist: 'Sleep', album: '助眠'
   })
+}
+// 一次性注册外部媒体键 handler。状态同步由 start/pause/resume/stop 核心函数内部调 syncPlaybackState 完成，
+// handler 不再重复调——否则每次外部键触发都同步两遍，且改同步逻辑要在 7 处分散改。
+function setupMediaSession() {
+  if (!('mediaSession' in navigator)) return
+  updateMediaMetadata()
   const onPlay  = () => {
     if (state.value === STATE.PAUSED) resume(); else if (state.value === STATE.IDLE) start()
     showToast(playing.value ? '已继续' : '')
-    syncPlaybackState()
   }
   const onPause = () => {
     if (playing.value) { pause(); showToast('已暂停') }
-    syncPlaybackState()
   }
-  const onStop = () => { stop(); showToast('已结束'); syncPlaybackState() }
+  const onStop = () => { stop(); showToast('已结束') }
   navigator.mediaSession.setActionHandler('play',      onPlay)
   navigator.mediaSession.setActionHandler('pause',     onPause)
   navigator.mediaSession.setActionHandler('stop',      onStop)
@@ -405,9 +432,7 @@ function showToast(msg) {
           <button class="audio-chip" @click="audioOpen = !audioOpen">
             <span class="audio-name">{{ selectedName }}</span>
             <!-- 缓存态图标:与下拉项同款,反映当前选中音源的真实离线态 -->
-            <i v-if="preparingKey === selectedKey" class="fa-solid fa-circle-notch fa-spin cache-ic loading-ic" title="准备中"></i>
-            <i v-else-if="cachedKeys.includes(selectedKey)" class="fa-solid fa-circle-check cache-ic local-ic" title="已缓存到本地"></i>
-            <i v-else class="fa-solid fa-cloud cache-ic cloud-ic" title="未缓存，点此下载到本地"></i>
+            <i v-bind="CACHE_ICON[cacheState(selectedKey)]"></i>
           </button>
           <div v-if="audioOpen" class="dropdown-backdrop" @click="audioOpen = false"></div>
           <Transition name="dropdown">
@@ -418,10 +443,8 @@ function showToast(msg) {
                 @click="selectAudio(a.key)"
               >
                 <span class="audio-item-name">{{ a.name }}</span>
-                <!-- 缓存态图标:云端=未下载(离线不可用,点一下即下载)/本地=已落盘可离线/旋转=正在烤制 -->
-                <i v-if="preparingKey === a.key" class="fa-solid fa-circle-notch fa-spin cache-ic loading-ic" title="准备中"></i>
-                <i v-else-if="cachedKeys.includes(a.key)" class="fa-solid fa-circle-check cache-ic local-ic" title="已缓存到本地"></i>
-                <i v-else class="fa-solid fa-cloud cache-ic cloud-ic" title="未缓存，点此下载到本地"></i>
+                <!-- 缓存态图标:云端=未下载(点一下即下载)/本地=已落盘可离线/旋转=正在烤制 -->
+                <i v-bind="CACHE_ICON[cacheState(a.key)]"></i>
               </li>
             </ul>
           </Transition>
@@ -438,7 +461,7 @@ function showToast(msg) {
         <div class="countdown">{{ countdownText }}</div>
         <div class="status">{{ (playing ? '播放中' : '已暂停') + '：' + selectedName }}</div>
         <div class="controls">
-          <button class="btn ghost" @click="goBack" aria-label="返回选择页">
+          <button class="btn ghost" @click="stop" aria-label="返回选择页">
             <i class="fa-solid fa-arrow-left"></i>
           </button>
           <button class="btn main" @click="toggle" aria-label="暂停或继续">
